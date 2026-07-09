@@ -65,8 +65,8 @@ func (a *authService) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := strings.TrimSpace(strings.ToLower(body.Email))
-	if email == "" || len(body.Password) < 12 {
-		http.Error(w, "email and 12 character password required", http.StatusBadRequest)
+	if email == "" || len(body.Password) < 8 {
+		http.Error(w, "email and 8 character password required", http.StatusBadRequest)
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)

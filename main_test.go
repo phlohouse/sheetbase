@@ -106,6 +106,22 @@ func TestAuthProtectsAPIProxy(t *testing.T) {
 	}
 }
 
+func TestSetupAcceptsEightCharacterPassword(t *testing.T) {
+	auth := &authService{store: &fakeUserStore{}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	handler, err := newUIHandler("http://127.0.0.1:3000", auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/setup", strings.NewReader(`{"email":"admin@example.com","password":"12345678"}`))
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("setup status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+}
+
 func TestUIHandlerLogsAPIRequests(t *testing.T) {
 	var output bytes.Buffer
 	previous := slog.Default()
