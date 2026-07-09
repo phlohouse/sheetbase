@@ -8,7 +8,7 @@ import (
 )
 
 func TestUIHandlerServesAppShellAndHealth(t *testing.T) {
-	handler, err := newUIHandler()
+	handler, err := newUIHandler("http://127.0.0.1:3000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +33,32 @@ func TestUIHandlerServesAppShellAndHealth(t *testing.T) {
 	}
 	if strings.TrimSpace(res.Body.String()) != "ok" {
 		t.Fatalf("GET /healthz body = %q, want ok", res.Body.String())
+	}
+}
+
+func TestUIHandlerProxiesAPIToPostgREST(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.String() != "/sheet_forms?select=*" {
+			t.Fatalf("proxied URL = %q", r.URL.String())
+		}
+		_, _ = w.Write([]byte(`[{"name":"Companies"}]`))
+	}))
+	defer backend.Close()
+
+	handler, err := newUIHandler(backend.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms?select=*", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("GET /api/sheet_forms status = %d, want %d", res.Code, http.StatusOK)
+	}
+	if strings.TrimSpace(res.Body.String()) != `[{"name":"Companies"}]` {
+		t.Fatalf("proxied body = %q", res.Body.String())
 	}
 }
 
