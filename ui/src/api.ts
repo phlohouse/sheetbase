@@ -79,6 +79,22 @@ export async function insertRows<T extends Record<string, unknown>>(
   });
 }
 
+export async function updateRow<T extends Record<string, unknown>>(
+  tableName: string,
+  id: string,
+  row: T,
+  fetcher: typeof fetch = fetch,
+): Promise<T[]> {
+  return request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}?id=eq.${encodeURIComponent(id)}`, fetcher, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(row),
+  });
+}
+
 async function request<T>(url: string, fetcher: typeof fetch, init?: RequestInit): Promise<T> {
   const response = await fetcher(url, init);
   if (!response.ok) {

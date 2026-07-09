@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms } from './api';
+import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, updateRow } from './api';
 
 describe('api client', () => {
   it('uses PostgREST endpoints for forms, fields, RPC, and generated rows', async () => {
@@ -15,6 +15,7 @@ describe('api client', () => {
     await addSheetField('form-1', 'Domain', fetcher);
     await listRows('sheet_abc', fetcher);
     await insertRows('sheet_abc', [{ company: 'Acme' }], fetcher);
+    await updateRow('sheet_abc', 'row-1', { company: 'Acme Labs' }, fetcher);
 
     expect(calls[0].input).toContain('/sheet_forms?select=*&order=created_at.desc');
     expect(calls[1].input).toContain('/sheet_fields?sheet_form_id=eq.form-1');
@@ -28,5 +29,8 @@ describe('api client', () => {
     expect(calls[5].input).toContain('/sheet_abc');
     expect(calls[5].init?.method).toBe('POST');
     expect(calls[5].init?.body).toBe(JSON.stringify([{ company: 'Acme' }]));
+    expect(calls[6].input).toContain('/sheet_abc?id=eq.row-1');
+    expect(calls[6].init?.method).toBe('PATCH');
+    expect(calls[6].init?.body).toBe(JSON.stringify({ company: 'Acme Labs' }));
   });
 });

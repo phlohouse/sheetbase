@@ -20,7 +20,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, SheetField, SheetForm } from './api';
+import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, SheetField, SheetForm, updateRow } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
@@ -224,12 +224,16 @@ export function App() {
       }
       const loadedFields = await listSheetFields(form.id);
       const fields = existingForm ? await ensureFields(form.id, headers, loadedFields) : loadedFields;
-      const payload = rowsToPayload(rows, columns, fields);
-      if (payload.length > 0) {
-        await insertRows(form.generated_table_name, payload);
+      const changes = rowsToChanges(rows, columns, fields, existingForm);
+      for (const change of changes.updates) {
+        await updateRow(form.generated_table_name, change.id, change.values);
+      }
+      if (changes.inserts.length > 0) {
+        await insertRows(form.generated_table_name, changes.inserts);
       }
       setSaveState('saved');
-      setSaveMessage(payload.length === 1 ? 'Saved 1 row' : `Saved ${payload.length} rows`);
+      const savedCount = changes.inserts.length + changes.updates.length;
+      setSaveMessage(savedCount === 1 ? 'Saved 1 row' : `Saved ${savedCount} rows`);
     } catch (error) {
       setSaveState('error');
       setSaveMessage(error instanceof Error ? error.message : 'Save failed');
@@ -471,22 +475,33 @@ export function App() {
   );
 }
 
-function rowsToPayload(rows: Row[], columns: Column[], fields: SheetField[]) {
+function rowsToChanges(rows: Row[], columns: Column[], fields: SheetField[], updateExisting: boolean) {
+  const inserts: Record<string, string>[] = [];
+  const updates: Array<{ id: string; values: Record<string, string> }> = [];
+  for (const currentRow of rows) {
+    const values = rowToPayload(currentRow, columns, fields);
+    if (Object.keys(values).length === 0) continue;
+    if (updateExisting && !currentRow.id.startsWith('draft-')) {
+      updates.push({ id: currentRow.id, values });
+    } else {
+      inserts.push(values);
+    }
+  }
+  return { inserts, updates };
+}
+
+function rowToPayload(currentRow: Row, columns: Column[], fields: SheetField[]) {
   const fieldsByName = new Map(fields.map((field) => [field.name.trim().toLowerCase(), field]));
-  return rows
-    .map((currentRow) => {
-      const record: Record<string, string> = {};
-      columns.forEach((column) => {
-        const header = column.label.trim();
-        const value = (currentRow.values[column.key] ?? '').trim();
-        const field = fieldsByName.get(header.toLowerCase());
-        if (field && value !== '') {
-          record[field.column_name] = value;
-        }
-      });
-      return record;
-    })
-    .filter((record) => Object.keys(record).length > 0);
+  const record: Record<string, string> = {};
+  columns.forEach((column) => {
+    const header = column.label.trim();
+    const value = (currentRow.values[column.key] ?? '').trim();
+    const field = fieldsByName.get(header.toLowerCase());
+    if (field && value !== '') {
+      record[field.column_name] = value;
+    }
+  });
+  return record;
 }
 
 async function ensureFields(sheetFormId: string, headers: string[], fields: SheetField[]) {

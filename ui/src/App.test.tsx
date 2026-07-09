@@ -148,9 +148,9 @@ describe('App', () => {
       expect(calls.some((call) => call.input.includes('/rpc/add_sheet_field'))).toBe(true);
     });
     const addFieldCall = calls.find((call) => call.input.includes('/rpc/add_sheet_field'));
-    const insertCall = calls.find((call) => call.input.includes('/sheet_abc') && call.init?.method === 'POST');
+    const updateCall = calls.find((call) => call.input.includes('/sheet_abc?id=eq.row-1') && call.init?.method === 'PATCH');
     expect(addFieldCall?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', name: 'Notes' }));
-    expect(insertCall?.init?.body).toContain('"notes":"Call back"');
+    expect(updateCall?.init?.body).toContain('"notes":"Call back"');
   });
 
   it('imports header columns from a Stencil config', async () => {
