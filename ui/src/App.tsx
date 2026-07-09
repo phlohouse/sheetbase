@@ -18,9 +18,9 @@ import {
   Table2,
   TerminalSquare,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { KeyboardEvent, useMemo, useRef, useState } from 'react';
 
-type FieldType = 'text' | 'url' | 'link' | 'score' | 'currency' | 'status';
+type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
 
 interface Column {
   key: string;
@@ -31,7 +31,13 @@ interface Column {
 
 interface Row {
   id: string;
-  values: Record<string, string | string[]>;
+  values: Record<string, string>;
+}
+
+interface ActiveCell {
+  rowIndex: number;
+  columnIndex: number;
+  kind: 'header' | 'body';
 }
 
 const forms = [
@@ -41,115 +47,26 @@ const forms = [
   { name: 'Deployments', count: 5 },
 ];
 
-const columns: Column[] = [
+const initialColumns: Column[] = [
   { key: 'company', label: 'Company', type: 'text', width: 260 },
   { key: 'domain', label: 'Domain', type: 'url', width: 190 },
   { key: 'source', label: 'Source records', type: 'link', width: 280 },
   { key: 'fit', label: 'Schema fit', type: 'score', width: 150 },
-  { key: 'records', label: 'Rows', type: 'currency', width: 140 },
+  { key: 'records', label: 'Rows', type: 'number', width: 140 },
   { key: 'api', label: 'API status', type: 'status', width: 160 },
 ];
 
-const rows: Row[] = [
-  {
-    id: 'vercel',
-    values: {
-      company: 'Vercel',
-      domain: 'vercel.com',
-      source: ['Website leads', 'Enterprise'],
-      fit: 'Excellent',
-      records: '1,248',
-      api: 'Live',
-    },
-  },
-  {
-    id: 'digitalocean',
-    values: {
-      company: 'DigitalOcean',
-      domain: 'digitalocean.com',
-      source: ['Cloud accounts'],
-      fit: 'Medium',
-      records: '904',
-      api: 'Live',
-    },
-  },
-  {
-    id: 'github',
-    values: {
-      company: 'GitHub',
-      domain: 'github.com',
-      source: ['Developer tools', 'Open source'],
-      fit: 'Good',
-      records: '2,010',
-      api: 'Live',
-    },
-  },
-  {
-    id: 'stripe',
-    values: {
-      company: 'Stripe',
-      domain: 'stripe.com',
-      source: ['Payments'],
-      fit: 'Good',
-      records: '1,620',
-      api: 'Live',
-    },
-  },
-  {
-    id: 'figma',
-    values: {
-      company: 'Figma',
-      domain: 'figma.com',
-      source: ['Design ops'],
-      fit: 'Good',
-      records: '812',
-      api: 'Draft',
-    },
-  },
-  {
-    id: 'intercom',
-    values: {
-      company: 'Intercom',
-      domain: 'intercom.com',
-      source: ['Support', 'Expansion'],
-      fit: 'Medium',
-      records: '694',
-      api: 'Live',
-    },
-  },
-  {
-    id: 'segment',
-    values: {
-      company: 'Segment',
-      domain: 'segment.com',
-      source: ['Warehouse sync'],
-      fit: 'Good',
-      records: '550',
-      api: 'Live',
-    },
-  },
-  {
-    id: 'notion',
-    values: {
-      company: 'Notion',
-      domain: 'notion.so',
-      source: ['Workspace import'],
-      fit: 'Medium',
-      records: '438',
-      api: 'Draft',
-    },
-  },
-  {
-    id: 'slack',
-    values: {
-      company: 'Slack',
-      domain: 'slack.com',
-      source: ['Team directory'],
-      fit: 'Low',
-      records: '315',
-      api: 'Paused',
-    },
-  },
+const initialRows: Row[] = [
+  row('vercel', ['Vercel', 'vercel.com', 'Website leads, Enterprise', 'Excellent', '1,248', 'Live']),
+  row('digitalocean', ['DigitalOcean', 'digitalocean.com', 'Cloud accounts', 'Medium', '904', 'Live']),
+  row('github', ['GitHub', 'github.com', 'Developer tools, Open source', 'Good', '2,010', 'Live']),
+  row('stripe', ['Stripe', 'stripe.com', 'Payments', 'Good', '1,620', 'Live']),
+  row('figma', ['Figma', 'figma.com', 'Design ops', 'Good', '812', 'Draft']),
+  row('intercom', ['Intercom', 'intercom.com', 'Support, Expansion', 'Medium', '694', 'Live']),
+  row('segment', ['Segment', 'segment.com', 'Warehouse sync', 'Good', '550', 'Live']),
+  row('notion', ['Notion', 'notion.so', 'Workspace import', 'Medium', '438', 'Draft']),
+  row('slack', ['Slack', 'slack.com', 'Team directory', 'Low', '315', 'Paused']),
+  emptyRow('draft-1', initialColumns),
 ];
 
 const iconByType: Record<FieldType, React.ComponentType<{ size?: number }>> = {
@@ -157,16 +74,111 @@ const iconByType: Record<FieldType, React.ComponentType<{ size?: number }>> = {
   url: Sparkles,
   link: Columns3,
   score: Braces,
-  currency: Database,
+  number: Database,
   status: TerminalSquare,
 };
 
+function row(id: string, values: string[]): Row {
+  return {
+    id,
+    values: Object.fromEntries(initialColumns.map((column, index) => [column.key, values[index] ?? ''])),
+  };
+}
+
+function emptyRow(id: string, columns: Column[]): Row {
+  return {
+    id,
+    values: Object.fromEntries(columns.map((column) => [column.key, ''])),
+  };
+}
+
+function newColumn(index: number): Column {
+  return {
+    key: `field_${index + 1}`,
+    label: '',
+    type: 'text',
+    width: 180,
+  };
+}
+
 export function App() {
-  const [activeCell, setActiveCell] = useState({ row: rows[0].id, column: columns[0].key });
+  const [columns, setColumns] = useState(initialColumns);
+  const [rows, setRows] = useState(initialRows);
+  const [activeCell, setActiveCell] = useState<ActiveCell>({ rowIndex: 0, columnIndex: 0, kind: 'body' });
+  const gridRef = useRef<HTMLDivElement>(null);
+
   const templateColumns = useMemo(
     () => `44px ${columns.map((column) => `${column.width}px`).join(' ')}`,
-    [],
+    [columns],
   );
+
+  const focusCell = (cell: ActiveCell) => {
+    setActiveCell(cell);
+    requestAnimationFrame(() => {
+      const selector = `[data-cell="${cell.kind}-${cell.rowIndex}-${cell.columnIndex}"]`;
+      gridRef.current?.querySelector<HTMLInputElement>(selector)?.focus();
+    });
+  };
+
+  const ensureNextRow = (nextRows: Row[]) => {
+    const last = nextRows.at(-1);
+    if (!last || Object.values(last.values).some((value) => value.trim() !== '')) {
+      return [...nextRows, emptyRow(`draft-${nextRows.length + 1}`, columns)];
+    }
+    return nextRows;
+  };
+
+  const updateHeader = (columnIndex: number, label: string) => {
+    setColumns((currentColumns) => currentColumns.map((column, index) => (
+      index === columnIndex ? { ...column, label } : column
+    )));
+  };
+
+  const updateCell = (rowIndex: number, columnKey: string, value: string) => {
+    setRows((currentRows) => ensureNextRow(currentRows.map((currentRow, index) => (
+      index === rowIndex
+        ? { ...currentRow, values: { ...currentRow.values, [columnKey]: value } }
+        : currentRow
+    ))));
+  };
+
+  const addColumn = () => {
+    setColumns((currentColumns) => {
+      const column = newColumn(currentColumns.length);
+      setRows((currentRows) => currentRows.map((currentRow) => ({
+        ...currentRow,
+        values: { ...currentRow.values, [column.key]: '' },
+      })));
+      requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: currentColumns.length }));
+      return [...currentColumns, column];
+    });
+  };
+
+  const moveCell = (from: ActiveCell, key: string) => {
+    let next: ActiveCell = { ...from };
+    if (key === 'ArrowLeft') next.columnIndex = Math.max(0, from.columnIndex - 1);
+    if (key === 'ArrowRight' || key === 'Tab') next.columnIndex = Math.min(columns.length - 1, from.columnIndex + 1);
+    if (key === 'ArrowUp') {
+      if (from.kind === 'body' && from.rowIndex === 0) next = { kind: 'header', rowIndex: 0, columnIndex: from.columnIndex };
+      else if (from.kind === 'body') next.rowIndex = Math.max(0, from.rowIndex - 1);
+    }
+    if (key === 'ArrowDown' || key === 'Enter') {
+      next = from.kind === 'header'
+        ? { kind: 'body', rowIndex: 0, columnIndex: from.columnIndex }
+        : { kind: 'body', rowIndex: Math.min(rows.length - 1, from.rowIndex + 1), columnIndex: from.columnIndex };
+    }
+    focusCell(next);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>, cell: ActiveCell) => {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Tab'].includes(event.key)) {
+      event.preventDefault();
+      moveCell(cell, event.key);
+    }
+    if (event.key === 'Escape') {
+      event.currentTarget.blur();
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -291,34 +303,46 @@ export function App() {
           <button className="filter-chip" type="button">
             Advanced filter <span>3</span>
           </button>
-          <button className="add-filter" type="button" aria-label="Add filter">
+          <button className="add-filter" onClick={addColumn} type="button" aria-label="Add column">
             <Plus size={17} />
           </button>
         </section>
 
         <section className="table-frame" aria-label="Companies Sheet Form">
-          <div className="data-grid" style={{ gridTemplateColumns: templateColumns }}>
+          <div className="data-grid" ref={gridRef} style={{ gridTemplateColumns: templateColumns }}>
             <div className="cell header select-cell">
               <input aria-label="Select all rows" type="checkbox" />
             </div>
-            {columns.map((column) => {
+            {columns.map((column, columnIndex) => {
               const Icon = iconByType[column.type];
+              const isActive = activeCell.kind === 'header' && activeCell.columnIndex === columnIndex;
               return (
-                <button className="cell header column-header" key={column.key} type="button">
+                <label className={`cell header column-header ${isActive ? 'active-cell' : ''}`} key={column.key}>
                   <Icon size={15} />
-                  <span>{column.label}</span>
+                  <input
+                    aria-label={`Header ${columnIndex + 1}`}
+                    data-cell={`header-0-${columnIndex}`}
+                    onChange={(event) => updateHeader(columnIndex, event.target.value)}
+                    onFocus={() => setActiveCell({ kind: 'header', rowIndex: 0, columnIndex })}
+                    onKeyDown={(event) => handleKeyDown(event, { kind: 'header', rowIndex: 0, columnIndex })}
+                    placeholder={`Field ${columnIndex + 1}`}
+                    value={column.label}
+                  />
                   <em>{column.type}</em>
-                </button>
+                </label>
               );
             })}
 
-            {rows.map((row) => (
+            {rows.map((currentRow, rowIndex) => (
               <RowCells
                 activeCell={activeCell}
                 columns={columns}
-                key={row.id}
+                key={currentRow.id}
                 onFocusCell={setActiveCell}
-                row={row}
+                onKeyDown={handleKeyDown}
+                onUpdateCell={updateCell}
+                row={currentRow}
+                rowIndex={rowIndex}
               />
             ))}
           </div>
@@ -329,62 +353,83 @@ export function App() {
 }
 
 interface RowCellsProps {
-  activeCell: { row: string; column: string };
+  activeCell: ActiveCell;
   columns: Column[];
-  onFocusCell: (cell: { row: string; column: string }) => void;
+  onFocusCell: (cell: ActiveCell) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLInputElement>, cell: ActiveCell) => void;
+  onUpdateCell: (rowIndex: number, columnKey: string, value: string) => void;
   row: Row;
+  rowIndex: number;
 }
 
-function RowCells({ activeCell, columns, onFocusCell, row }: RowCellsProps) {
+function RowCells({ activeCell, columns, onFocusCell, onKeyDown, onUpdateCell, row, rowIndex }: RowCellsProps) {
+  const rowName = row.values[columns[0]?.key] || `row ${rowIndex + 1}`;
+
   return (
     <>
       <div className="cell select-cell">
-        <input aria-label={`Select ${row.values.company}`} type="checkbox" />
+        <input aria-label={`Select ${rowName}`} type="checkbox" />
       </div>
-      {columns.map((column) => {
-        const value = row.values[column.key];
-        const isActive = activeCell.row === row.id && activeCell.column === column.key;
+      {columns.map((column, columnIndex) => {
+        const value = row.values[column.key] ?? '';
+        const isActive = activeCell.kind === 'body'
+          && activeCell.rowIndex === rowIndex
+          && activeCell.columnIndex === columnIndex;
         return (
-          <button
-            className={`cell data-cell ${isActive ? 'active-cell' : ''}`}
-            key={column.key}
-            onClick={() => onFocusCell({ row: row.id, column: column.key })}
-            type="button"
-          >
-            <CellValue column={column} value={value} />
-          </button>
+          <label className={`cell data-cell ${isActive ? 'active-cell' : ''}`} key={column.key}>
+            <CellInput
+              cell={{ kind: 'body', rowIndex, columnIndex }}
+              column={column}
+              onFocusCell={onFocusCell}
+              onKeyDown={onKeyDown}
+              onUpdate={(nextValue) => onUpdateCell(rowIndex, column.key, nextValue)}
+              value={value}
+            />
+          </label>
         );
       })}
     </>
   );
 }
 
-function CellValue({ column, value }: { column: Column; value: string | string[] }) {
-  if (Array.isArray(value)) {
-    return (
-      <span className="tag-list">
-        {value.map((item) => (
-          <span className="tag neutral" key={item}>{item}</span>
-        ))}
-      </span>
-    );
-  }
+function CellInput({
+  cell,
+  column,
+  onFocusCell,
+  onKeyDown,
+  onUpdate,
+  value,
+}: {
+  cell: ActiveCell;
+  column: Column;
+  onFocusCell: (cell: ActiveCell) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLInputElement>, cell: ActiveCell) => void;
+  onUpdate: (value: string) => void;
+  value: string;
+}) {
+  const className = column.type === 'text' ? 'plain-cell-input' : `pill-input pill-${pillColor(column, value)}`;
 
-  if (column.type === 'url') {
-    return <span className="tag url">{value}</span>;
-  }
+  return (
+    <input
+      aria-label={`${column.label || 'Untitled field'} value`}
+      className={className}
+      data-cell={`${cell.kind}-${cell.rowIndex}-${cell.columnIndex}`}
+      onChange={(event) => onUpdate(event.target.value)}
+      onFocus={() => onFocusCell(cell)}
+      onKeyDown={(event) => onKeyDown(event, cell)}
+      placeholder="Type…"
+      value={value}
+    />
+  );
+}
 
-  if (column.type === 'score') {
-    return <span className={`tag score-${value.toLowerCase()}`}>{value}</span>;
-  }
-
-  if (column.type === 'currency') {
-    return <span className="tag cyan">{value} rows</span>;
-  }
-
-  if (column.type === 'status') {
-    return <span className={`status status-${value.toLowerCase()}`}>{value}</span>;
-  }
-
-  return <span className="primary-value">{value}</span>;
+function pillColor(column: Column, value: string) {
+  const normalized = value.toLowerCase();
+  if (column.type === 'url' || column.type === 'number') return 'blue';
+  if (column.type === 'link') return 'neutral';
+  if (normalized === 'excellent') return 'violet';
+  if (normalized === 'good' || normalized === 'live') return 'green';
+  if (normalized === 'medium' || normalized === 'draft') return 'blue';
+  if (normalized === 'low' || normalized === 'paused') return 'amber';
+  return 'neutral';
 }

@@ -4,6 +4,7 @@ build: ui-build
 	go build -o bin/sheetbase .
 
 test: ui-build
+	cd ui && npm test
 	go test ./...
 
 serve: ui-build
