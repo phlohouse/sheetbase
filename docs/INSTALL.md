@@ -65,6 +65,7 @@ sudo systemctl enable --now sheetbase
 
 ```sh
 sheetbase backup --home /var/lib/sheetbase
+sheetbase export --home /var/lib/sheetbase
 sheetbase restore --home /var/lib/sheetbase --in /var/lib/sheetbase/backups/sheetbase-YYYYMMDDTHHMMSSZ.dump
 ```
 

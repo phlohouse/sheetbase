@@ -40,6 +40,12 @@ backup="$home/backups/test.dump"
 go run . backup --home "$home" --postgres-port "$postgres_port" --out "$backup" >/dev/null
 test -s "$backup"
 
+export_archive="$home/backups/export.tar.gz"
+go run . export --home "$home" --postgres-port "$postgres_port" --out "$export_archive" >/dev/null
+test -s "$export_archive"
+tar -tzf "$export_archive" | grep -q "postgres.dump"
+tar -tzf "$export_archive" | grep -q "config/sheetbase.env"
+
 go run . stop --home "$home" --postgres-port "$postgres_port" --postgrest-port "$postgrest_port" >/dev/null
 
 status="$(go run . status --home "$home" --postgres-port "$postgres_port" --postgrest-port "$postgrest_port")"

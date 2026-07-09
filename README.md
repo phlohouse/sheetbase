@@ -32,6 +32,7 @@ Useful commands:
 - `go run . status --home .sheetbase`: show app, PostgreSQL, and PostgREST status
 - `go run . stop --home .sheetbase`: stop managed containers
 - `go run . backup --home .sheetbase`: write a PostgreSQL dump under `.sheetbase/backups`
+- `go run . export --home .sheetbase`: write app metadata and a PostgreSQL dump under `.sheetbase/backups`
 - `go run . restore --home .sheetbase --in .sheetbase/backups/sheetbase-YYYYMMDDTHHMMSSZ.dump`: restore a dump
 - `go run . systemd --home /var/lib/sheetbase --bin /usr/local/bin/sheetbase`: print a systemd unit
 
