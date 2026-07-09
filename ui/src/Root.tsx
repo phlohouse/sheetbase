@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { App } from './App';
-import { currentUser, loginUser, setupUser } from './auth';
+import { currentUser, loginUser, logoutUser, setupUser } from './auth';
 
 export function Root() {
   const [ready, setReady] = useState(false);
@@ -21,7 +21,9 @@ export function Root() {
     return <AuthScreen onAuthenticated={() => setAuthenticated(true)} />;
   }
 
-  return <App />;
+  return <App onSignOut={() => {
+    void logoutUser().finally(() => setAuthenticated(false));
+  }} />;
 }
 
 function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {

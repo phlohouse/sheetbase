@@ -11,6 +11,13 @@ export async function loginUser(email: string, password: string, fetcher: typeof
   return authRequest('/auth/login', email, password, fetcher);
 }
 
+export async function logoutUser(fetcher: typeof fetch = fetch) {
+  const response = await fetcher('/auth/logout', { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
 async function authRequest(url: string, email: string, password: string, fetcher: typeof fetch) {
   const response = await fetcher(url, {
     method: 'POST',

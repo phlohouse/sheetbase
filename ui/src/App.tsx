@@ -113,7 +113,7 @@ function columnsFromHeaders(headers: string[]): Column[] {
   }));
 }
 
-export function App() {
+export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [columns, setColumns] = useState(initialColumns);
   const [rows, setRows] = useState(initialRows);
   const [activeCell, setActiveCell] = useState<ActiveCell>({ rowIndex: 0, columnIndex: 0, kind: 'body' });
@@ -374,7 +374,7 @@ export function App() {
               <span>J</span>
               <span>+1</span>
             </div>
-            <button className="plain-button" type="button">Share</button>
+            <button className="plain-button" onClick={onSignOut} type="button">Sign out</button>
             <button className="ghost-icon" type="button" aria-label="More options">
               <MoreHorizontal size={18} />
             </button>
