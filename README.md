@@ -25,6 +25,7 @@ Useful commands:
 - `go run . start --home .sheetbase`: start managed PostgreSQL and PostgREST processes
 - `go run . status --home .sheetbase`: show managed process status
 - `go run . stop --home .sheetbase`: stop managed processes
+- `go run . systemd --home /var/lib/sheetbase --bin /usr/local/bin/sheetbase`: print a systemd unit
 
 The lifecycle commands expect `initdb`, `pg_ctl`, and `psql` on `PATH` or via
 `--postgres-bin`, and `postgrest` on `PATH` or via `--postgrest-bin`.

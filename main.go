@@ -51,6 +51,8 @@ func run(args []string) error {
 		return startApp(args[1:])
 	case "status":
 		return statusApp(args[1:])
+	case "systemd":
+		return systemdApp(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -102,6 +104,7 @@ Usage:
   sheetbase stop [--home DIR]
   sheetbase restart [--home DIR]
   sheetbase status [--home DIR]
+  sheetbase systemd [--home DIR] [--bin /usr/local/bin/sheetbase]
 
 Commands:
   init    Create the Sheetbase home directory and config
@@ -109,6 +112,7 @@ Commands:
   start   Start managed PostgreSQL and PostgREST processes
   stop    Stop managed PostgreSQL and PostgREST processes
   status  Show managed process status
+  systemd Print a systemd service unit
   help    Show this help`)
 }
 
