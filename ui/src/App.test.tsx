@@ -42,6 +42,18 @@ describe('App', () => {
     await waitFor(() => expect(document.activeElement).toBe(company));
   });
 
+  it('makes sidebar utility controls visible actions', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'API surface' }));
+    expect(await screen.findByText('Save a Sheet Form to create an API endpoint')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Managed Postgres' }));
+    expect(await screen.findByText('Managed Postgres is running under the Sheetbase home')).toBeTruthy();
+
+    expect(screen.getByRole('button', { name: 'Notifications' })).toHaveProperty('disabled', true);
+  });
+
   it('saves headers and rows through PostgREST', async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

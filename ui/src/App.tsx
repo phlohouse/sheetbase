@@ -223,6 +223,11 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     ))));
   };
 
+  const showSidebarMessage = (message: string) => {
+    setSaveState('idle');
+    setSaveMessage(message);
+  };
+
   const addColumn = () => {
     setColumns((currentColumns) => {
       const column = newColumn(currentColumns.length);
@@ -466,22 +471,22 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         </div>
 
         <nav className="nav-list">
-          <a href="#home">
+          <button onClick={() => focusCell(activeCell)} type="button">
             <Home size={16} />
             Home
-          </a>
-          <a href="#notifications">
+          </button>
+          <button disabled type="button">
             <Bell size={16} />
             Notifications
-          </a>
-          <a href="#database">
+          </button>
+          <button onClick={() => showSidebarMessage('Managed Postgres is running under the Sheetbase home')} type="button">
             <Database size={16} />
             Managed Postgres
-          </a>
-          <a href="#api">
+          </button>
+          <button onClick={() => showSidebarMessage(sheetForm ? `API endpoint: /api/${sheetForm.generated_table_name}` : 'Save a Sheet Form to create an API endpoint')} type="button">
             <TerminalSquare size={16} />
             API surface
-          </a>
+          </button>
         </nav>
 
         <div className="nav-section">

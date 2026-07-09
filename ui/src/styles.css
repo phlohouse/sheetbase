@@ -239,26 +239,40 @@ input:focus-visible {
   gap: 2px;
 }
 
-.nav-list a,
+.nav-list button,
 .form-list a,
 .muted-nav a {
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
   min-height: 32px;
   padding: 0 9px;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
   color: var(--ink);
   font-size: 14px;
   font-weight: 520;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.nav-list a:hover,
+.nav-list button:hover,
 .form-list a:hover,
 .muted-nav a:hover,
 .form-list a.active {
   background: var(--surface);
+}
+
+.nav-list button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.nav-list button:disabled:hover {
+  background: transparent;
 }
 
 .nav-section {
