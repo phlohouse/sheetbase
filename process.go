@@ -25,11 +25,13 @@ type appConfig struct {
 	postgresPort  string
 	postgrestPort string
 	jwtSecret     string
+	backupOut     string
 }
 
 type appPaths struct {
 	home            string
 	bin             string
+	backups         string
 	config          string
 	logs            string
 	postgresData    string
@@ -123,6 +125,7 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	flags.StringVar(&cfg.postgresPort, "postgres-port", envOrDefault("SHEETBASE_POSTGRES_PORT", "55432"), "managed PostgreSQL port")
 	flags.StringVar(&cfg.postgrestPort, "postgrest-port", envOrDefault("SHEETBASE_POSTGREST_PORT", "3000"), "managed PostgREST port")
 	flags.StringVar(&cfg.jwtSecret, "jwt-secret", envOrDefault("SHEETBASE_JWT_SECRET", defaultJWTSecret), "PostgREST JWT secret")
+	flags.StringVar(&cfg.backupOut, "out", "", "backup file path")
 	if err := flags.Parse(args); err != nil {
 		return appConfig{}, err
 	}
@@ -150,6 +153,7 @@ func newAppPaths(home string) appPaths {
 	return appPaths{
 		home:            home,
 		bin:             filepath.Join(home, "bin"),
+		backups:         filepath.Join(home, "backups"),
 		config:          filepath.Join(home, "config"),
 		logs:            filepath.Join(home, "logs"),
 		postgresData:    filepath.Join(home, "data", "postgres"),
@@ -161,7 +165,7 @@ func newAppPaths(home string) appPaths {
 }
 
 func ensureAppHome(paths appPaths) error {
-	for _, dir := range []string{paths.bin, paths.config, paths.logs, paths.postgresData} {
+	for _, dir := range []string{paths.bin, paths.backups, paths.config, paths.logs, paths.postgresData} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create %s: %w", dir, err)
 		}
