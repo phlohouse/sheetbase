@@ -114,6 +114,11 @@ function columnsFromHeaders(headers: string[]): Column[] {
   }));
 }
 
+function blankDraft() {
+  const columns = [newColumn(0), newColumn(1), newColumn(2)];
+  return { columns, rows: [emptyRow('draft-1', columns)] };
+}
+
 export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [columns, setColumns] = useState(initialColumns);
   const [rows, setRows] = useState(initialRows);
@@ -134,6 +139,15 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         const forms = await listSheetForms();
         if (!cancelled) setSheetForms(forms);
         const [form] = forms;
+        if (!form && !cancelled) {
+          const draft = blankDraft();
+          setSheetForm(null);
+          setFormName('Untitled Sheet Form');
+          setColumns(draft.columns);
+          setRows(draft.rows);
+          setSaveState('idle');
+          setSaveMessage('No Sheet Forms yet');
+        }
         if (!form || cancelled) return;
         await loadForm(form, () => cancelled);
       } catch {
@@ -351,11 +365,11 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   };
 
   const createNewForm = () => {
-    const nextColumns = [newColumn(0), newColumn(1), newColumn(2)];
+    const draft = blankDraft();
     setFormName('Untitled Sheet Form');
     setSheetForm(null);
-    setColumns(nextColumns);
-    setRows([emptyRow('draft-1', nextColumns)]);
+    setColumns(draft.columns);
+    setRows(draft.rows);
     setSaveState('idle');
     setSaveMessage('Local draft');
     requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: 0 }));

@@ -69,6 +69,17 @@ describe('App', () => {
     expect(insertCall?.init?.body).toContain('"domain":"vercel.com"');
   });
 
+  it('shows a blank draft when the API has no Sheet Forms', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([]), { status: 200 })));
+
+    render(<App />);
+
+    expect(await screen.findByText('No Sheet Forms yet')).toBeTruthy();
+    expect(screen.getByDisplayValue('Untitled Sheet Form')).toBeTruthy();
+    expect(screen.getByLabelText('Header 1')).toBeTruthy();
+    expect(screen.queryByDisplayValue('Vercel')).toBeNull();
+  });
+
   it('creates a new Sheet Form with an editable name', async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -138,6 +149,7 @@ describe('App', () => {
 
     render(<App />);
 
+    expect(await screen.findByText('No Sheet Forms yet')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'New form' }));
     fireEvent.change(screen.getByLabelText('Header 1'), { target: { value: 'Company' } });
     fireEvent.change(screen.getAllByLabelText('Company value')[0], { target: { value: 'Acme Labs' } });
