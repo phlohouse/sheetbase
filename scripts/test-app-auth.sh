@@ -100,11 +100,13 @@ if [[ "$forms" != *"Auth Companies"* ]]; then
   exit 1
 fi
 
-metadata="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/api/sheet_fields?sheet_form_id=eq.$form_id&select=name,column_name&order=position.asc")"
+metadata="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/api/sheet_fields?sheet_form_id=eq.$form_id&select=id,name,column_name&order=position.asc")"
 if [[ "$metadata" != *"Company"* || "$metadata" != *"Domain"* ]]; then
   echo "Authenticated API did not return form fields: $metadata" >&2
   exit 1
 fi
+company_field_id="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(next(field["id"] for field in json.load(sys.stdin) if field["name"] == "Company"))')"
+domain_field_id="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(next(field["id"] for field in json.load(sys.stdin) if field["name"] == "Domain"))')"
 
 curl --fail --silent \
   --cookie "$cookie_file" \
@@ -117,6 +119,63 @@ filtered="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080
 filtered_company="$(printf '%s' "$filtered" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["company"])')"
 if [[ "$filtered_company" != "Acme Labs" ]]; then
   echo "Authenticated API did not return inserted row: $filtered" >&2
+  exit 1
+fi
+
+added_field="$(curl --fail --silent \
+  --cookie "$cookie_file" \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: return=representation' \
+  --data "{\"sheet_form_id\":\"$form_id\",\"name\":\"Rows\"}" \
+  "http://127.0.0.1:18080/api/rpc/add_sheet_field")"
+rows_column="$(printf '%s' "$added_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["column_name"])')"
+rows_field_id="$(printf '%s' "$added_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+
+curl --fail --silent \
+  --cookie "$cookie_file" \
+  --request PATCH \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: return=representation' \
+  --data "{\"$rows_column\":\"42\"}" \
+  "http://127.0.0.1:18080/api/$generated_table?domain=eq.acme.test" >/dev/null
+
+typed_field="$(curl --fail --silent \
+  --cookie "$cookie_file" \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: return=representation' \
+  --data "{\"sheet_form_id\":\"$form_id\",\"field_id\":\"$rows_field_id\",\"target_type\":\"integer\"}" \
+  "http://127.0.0.1:18080/api/rpc/tighten_sheet_field_type")"
+typed_value="$(printf '%s' "$typed_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["type"])')"
+if [[ "$typed_value" != "integer" ]]; then
+  echo "Type tightening did not return integer field: $typed_field" >&2
+  exit 1
+fi
+
+unsafe_status="$(curl --silent --output /tmp/sheetbase-unsafe-tighten.txt --write-out '%{http_code}' \
+  --cookie "$cookie_file" \
+  --header 'Content-Type: application/json' \
+  --data "{\"sheet_form_id\":\"$form_id\",\"field_id\":\"$company_field_id\",\"target_type\":\"integer\"}" \
+  "http://127.0.0.1:18080/api/rpc/tighten_sheet_field_type")"
+if [[ "$unsafe_status" == "200" ]]; then
+  echo "Unsafe type tightening unexpectedly succeeded" >&2
+  exit 1
+fi
+
+hidden_field="$(curl --fail --silent \
+  --cookie "$cookie_file" \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: return=representation' \
+  --data "{\"sheet_form_id\":\"$form_id\",\"field_id\":\"$domain_field_id\"}" \
+  "http://127.0.0.1:18080/api/rpc/hide_sheet_field")"
+hidden_value="$(printf '%s' "$hidden_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["hidden"])')"
+if [[ "$hidden_value" != "True" ]]; then
+  echo "Hide field did not return hidden=true: $hidden_field" >&2
+  exit 1
+fi
+
+visible_metadata="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/api/sheet_fields?sheet_form_id=eq.$form_id&hidden=eq.false&select=name")"
+if [[ "$visible_metadata" == *"Domain"* ]]; then
+  echo "Hidden field still appears in default visible metadata: $visible_metadata" >&2
   exit 1
 fi
 
