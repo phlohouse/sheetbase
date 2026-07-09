@@ -180,6 +180,21 @@ func TestAuthRejectsExpiredSession(t *testing.T) {
 	}
 }
 
+func TestSignedSessionSurvivesRestart(t *testing.T) {
+	auth := &authService{jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	res := httptest.NewRecorder()
+	auth.setSession(res, "user-1")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
+	req.AddCookie(res.Result().Cookies()[0])
+
+	restarted := &authService{jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	userID, ok := restarted.userID(req)
+	if !ok || userID != "user-1" {
+		t.Fatalf("session after restart = %q, %v; want user-1, true", userID, ok)
+	}
+}
+
 func TestCleanAssetPath(t *testing.T) {
 	tests := map[string]string{
 		"":                      "index.html",

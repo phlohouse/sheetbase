@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -125,6 +123,9 @@ func (a *authService) userID(r *http.Request) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	if userID, ok := a.signedSessionUserID(cookie.Value); ok {
+		return userID, true
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	session, ok := a.sessions[cookie.Value]
@@ -139,14 +140,10 @@ func (a *authService) userID(r *http.Request) (string, bool) {
 }
 
 func (a *authService) setSession(w http.ResponseWriter, userID string) {
-	token := randomToken()
 	expires := time.Now().Add(24 * time.Hour)
-	a.mu.Lock()
-	a.sessions[token] = sessionRecord{userID: userID, expires: expires}
-	a.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "sheetbase_session",
-		Value:    token,
+		Value:    a.signSession(userID, expires),
 		Path:     "/",
 		Expires:  expires,
 		HttpOnly: true,
@@ -154,12 +151,39 @@ func (a *authService) setSession(w http.ResponseWriter, userID string) {
 	})
 }
 
-func randomToken() string {
-	var bytes [32]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		panic(err)
+func (a *authService) signSession(userID string, expires time.Time) string {
+	payload, _ := json.Marshal(map[string]any{
+		"sub": userID,
+		"exp": expires.Unix(),
+	})
+	encoded := base64.RawURLEncoding.EncodeToString(payload)
+	mac := hmac.New(sha256.New, []byte(a.jwtSecret))
+	_, _ = mac.Write([]byte(encoded))
+	return encoded + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (a *authService) signedSessionUserID(value string) (string, bool) {
+	encoded, sig, ok := strings.Cut(value, ".")
+	if !ok {
+		return "", false
 	}
-	return hex.EncodeToString(bytes[:])
+	mac := hmac.New(sha256.New, []byte(a.jwtSecret))
+	_, _ = mac.Write([]byte(encoded))
+	if !hmac.Equal([]byte(sig), []byte(base64.RawURLEncoding.EncodeToString(mac.Sum(nil)))) {
+		return "", false
+	}
+	var payload struct {
+		Subject string `json:"sub"`
+		Expires int64  `json:"exp"`
+	}
+	bytes, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || json.Unmarshal(bytes, &payload) != nil || payload.Subject == "" {
+		return "", false
+	}
+	if time.Now().After(time.Unix(payload.Expires, 0)) {
+		return "", false
+	}
+	return payload.Subject, true
 }
 
 func (a *authService) jwt(userID string) string {
