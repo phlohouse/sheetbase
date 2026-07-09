@@ -184,6 +184,7 @@ button {
   font-size: 13px;
   font-weight: 560;
   line-height: 1;
+  text-decoration: none;
   cursor: pointer;
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
 }

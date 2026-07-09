@@ -94,6 +94,7 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	handler = withExportDownload(handler, newAppPaths(cfg.home), auth)
 
 	slog.Info("serving Sheetbase", "addr", cfg.appAddr)
 	err = http.ListenAndServe(cfg.appAddr, handler)
@@ -101,6 +102,34 @@ func serve(args []string) error {
 		return nil
 	}
 	return err
+}
+
+func withExportDownload(next http.Handler, paths appPaths, auth *authService) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/admin/export" {
+			if auth != nil {
+				if _, ok := auth.userID(r); !ok {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+			target, err := os.CreateTemp("", "sheetbase-export-*.tar.gz")
+			if err != nil {
+				http.Error(w, "create export", http.StatusInternalServerError)
+				return
+			}
+			_ = target.Close()
+			defer os.Remove(target.Name())
+			if err := exportToFile(paths, target.Name()); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Disposition", `attachment; filename="sheetbase-export.tar.gz"`)
+			http.ServeFile(w, r, target.Name())
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func parseServeConfig(args []string) (appConfig, error) {

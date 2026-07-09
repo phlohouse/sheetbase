@@ -26,6 +26,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByLabelText('Add column'));
     expect(screen.getByLabelText('Header 7')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Export' }).getAttribute('href')).toBe('/admin/export');
   });
 
   it('moves across cells with Tab and Shift+Tab', async () => {

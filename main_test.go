@@ -150,6 +150,19 @@ func TestUIHandlerLogsAPIRequests(t *testing.T) {
 	}
 }
 
+func TestExportDownloadRequiresAuth(t *testing.T) {
+	auth := &authService{store: &fakeUserStore{}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	handler := withExportDownload(http.NotFoundHandler(), newAppPaths(t.TempDir()), auth)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/export", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("export status = %d, want %d", res.Code, http.StatusUnauthorized)
+	}
+}
+
 func TestAuthRejectsExpiredSession(t *testing.T) {
 	auth := &authService{
 		sessions: map[string]sessionRecord{

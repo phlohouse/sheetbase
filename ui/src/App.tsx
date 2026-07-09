@@ -573,11 +573,11 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               onChange={(event) => void importStencilConfig(event.target.files?.[0])}
               type="file"
             />
-            <button className="toolbar-button" type="button">
+            <a className="toolbar-button" href="/admin/export">
               <Download size={16} />
               Export
               <ChevronDown size={14} />
-            </button>
+            </a>
           </div>
         </section>
 

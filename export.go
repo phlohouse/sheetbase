@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -23,6 +24,14 @@ func exportApp(args []string) error {
 	if target == "" {
 		target = filepath.Join(paths.backups, "sheetbase-export-"+time.Now().UTC().Format("20060102T150405Z")+".tar.gz")
 	}
+	if err := exportToFile(paths, target); err != nil {
+		return err
+	}
+	fmt.Printf("export written to %s\n", target)
+	return nil
+}
+
+func exportToFile(paths appPaths, target string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
@@ -40,7 +49,6 @@ func exportApp(args []string) error {
 	if err := writeExportArchive(target, paths, dump.Name()); err != nil {
 		return err
 	}
-	fmt.Printf("export written to %s\n", target)
 	return nil
 }
 
@@ -65,6 +73,9 @@ func writeExportArchive(target string, paths appPaths, dumpPath string) error {
 		{name: "postgres.dump", path: dumpPath},
 	} {
 		if err := addFileToTar(tw, item.name, item.path); err != nil {
+			if os.IsNotExist(err) && strings.HasPrefix(item.name, "config/") {
+				continue
+			}
 			return err
 		}
 	}
