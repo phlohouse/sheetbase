@@ -10,7 +10,7 @@ The current gap is that spreadsheets are easy to use but weak as shared systems 
 
 Sheetbase provides a browser Spreadsheet UI where users create Sheet Forms by typing field names into the Header Row and then entering records into cells beneath it. Users may optionally import a Stencil config to create the Header Row fields for a new Sheet Form. Each Sheet Form creates one Generated Table in Managed Postgres. Generated Tables and Control Tables are exposed through a PostgREST-style API, so PostgreSQL remains the source of truth and the API surface.
 
-A single Linux binary owns the operator experience. It serves the UI, installs and supervises PostgreSQL, installs and supervises PostgREST, initializes Control Tables, runs migrations, and exposes only tiny operational endpoints where PostgREST cannot do the job.
+A single Linux binary owns the operator experience. It serves the UI, manages PostgreSQL and PostgREST through Docker, initializes Control Tables, runs migrations, and exposes only tiny operational endpoints where PostgREST cannot do the job.
 
 V1 keeps schema changes additive. Users can create Sheet Forms, add fields, hide or deprecate fields, and tighten field types only when existing values validate. Destructive migrations and arbitrary type rewrites are left for later.
 
@@ -39,7 +39,7 @@ V1 keeps schema changes additive. Users can create Sheet Forms, add fields, hide
 21. As an API consumer, I want predictable table-backed resource names, so that I can build stable integrations.
 22. As an API consumer, I want metadata exposed through Control Tables, so that I can discover Sheet Forms and fields.
 23. As an administrator, I want a single Linux binary, so that deployment does not require assembling multiple app services by hand.
-24. As an administrator, I want the binary to install PostgreSQL, so that setup is repeatable.
+24. As an administrator, I want the binary to manage PostgreSQL through Docker, so that setup is repeatable.
 25. As an administrator, I want the binary to initialize PostgreSQL, so that a fresh server can become usable quickly.
 26. As an administrator, I want the binary to start PostgreSQL and PostgREST, so that one command brings the system online.
 27. As an administrator, I want the binary to stop PostgreSQL and PostgREST, so that shutdown is controlled.

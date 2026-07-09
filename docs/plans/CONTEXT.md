@@ -37,7 +37,7 @@ Changing a Generated Table column from `text` to a stricter type only after all 
 _Avoid_: Destructive migration, guessed type migration
 
 **Managed Postgres**:
-A real PostgreSQL server installed, initialized, started, stopped, monitored, and restarted by the application binary.
+A real PostgreSQL server started, stopped, monitored, and restarted by the application binary through Docker.
 _Avoid_: Embedded Postgres, user-managed database
 
 **Control Tables**:
