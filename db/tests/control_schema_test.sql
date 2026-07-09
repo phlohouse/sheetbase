@@ -81,6 +81,16 @@ begin
   end if;
 
   begin
+    perform rename_sheet_form(form_id, 'Stolen Name');
+    raise exception 'other user should not rename forms';
+  exception
+    when raise_exception then
+      if sqlerrm = 'other user should not rename forms' then
+        raise;
+      end if;
+  end;
+
+  begin
     perform add_sheet_field(form_id, 'Stolen Field');
     raise exception 'other user should not add fields';
   exception
@@ -103,6 +113,24 @@ end;
 $$;
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+do $$
+declare
+  renamed sheet_forms;
+begin
+  select *
+  from rename_sheet_form((select id from created_form), 'Renamed Revenue Tracker')
+  into renamed;
+
+  if renamed.name != 'Renamed Revenue Tracker' then
+    raise exception 'rename did not return updated name: %', renamed.name;
+  end if;
+
+  if (select name from sheet_forms where id = renamed.id) != 'Renamed Revenue Tracker' then
+    raise exception 'rename did not persist';
+  end if;
+end;
+$$;
 
 create temp table added_field as
 select *

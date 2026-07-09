@@ -36,7 +36,7 @@ describe('App', () => {
         return new Response(JSON.stringify({
           id: 'form-1',
           slug: 'companies',
-          name: 'Companies',
+          name: 'Untitled Sheet Form',
           generated_table_name: 'sheet_abc',
         }), { status: 200 });
       }
@@ -118,7 +118,7 @@ describe('App', () => {
         return new Response(JSON.stringify({
           id: 'form-1',
           slug: 'companies',
-          name: 'Companies',
+          name: 'Untitled Sheet Form',
           generated_table_name: 'sheet_abc',
         }), { status: 200 });
       }
@@ -223,6 +223,49 @@ describe('App', () => {
 
     expect(await screen.findByDisplayValue('Gareth')).toBeTruthy();
     expect(screen.getByDisplayValue('Requests')).toBeTruthy();
+  });
+
+  it('renames an existing Sheet Form on save', async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ input: url, init });
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([
+          { id: 'form-1', slug: 'companies', name: 'Companies', generated_table_name: 'sheet_companies' },
+        ]), { status: 200 });
+      }
+      if (url.includes('/rpc/rename_sheet_form')) {
+        return new Response(JSON.stringify({
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Renamed Companies',
+          generated_table_name: 'sheet_companies',
+        }), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_companies')) {
+        return new Response(JSON.stringify([{ id: 'row-1', company: 'Acme Labs' }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue('Acme Labs')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Sheet Form name'), { target: { value: 'Renamed Companies' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/rpc/rename_sheet_form'))).toBe(true);
+    });
+    const renameCall = calls.find((call) => call.input.includes('/rpc/rename_sheet_form'));
+    expect(renameCall?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', name: 'Renamed Companies' }));
+    expect(screen.getByText('Renamed Companies')).toBeTruthy();
   });
 
   it('shows load errors when a Sheet Form cannot load rows', async () => {

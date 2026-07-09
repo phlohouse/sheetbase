@@ -19,7 +19,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, SheetField, SheetForm, updateRow } from './api';
+import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, renameSheetForm, SheetField, SheetForm, updateRow } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
@@ -230,10 +230,15 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
 
     try {
       const existingForm = sheetForm !== null;
-      const form = sheetForm ?? await createSheetForm(name, headers);
+      const form = sheetForm
+        ? (sheetForm.name === name ? sheetForm : await renameSheetForm(sheetForm.id, name))
+        : await createSheetForm(name, headers);
       if (!sheetForm) {
         setSheetForm(form);
         setSheetForms((current) => [form, ...current.filter((existing) => existing.id !== form.id)]);
+      } else if (form.name !== sheetForm.name) {
+        setSheetForm(form);
+        setSheetForms((current) => current.map((existing) => (existing.id === form.id ? form : existing)));
       }
       const loadedFields = await listSheetFields(form.id);
       const fields = existingForm ? await ensureFields(form.id, headers, loadedFields) : loadedFields;
