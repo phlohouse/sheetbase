@@ -23,7 +23,7 @@ Useful commands:
 - `go run . serve -addr :8080 -postgrest-url http://127.0.0.1:3000`: serve the embedded UI and `/api` proxy
 - `go run . init --home .sheetbase`: create a local Sheetbase home
 - `go run . start --home .sheetbase`: start managed PostgreSQL and PostgREST processes
-- `go run . status --home .sheetbase`: show managed process status
+- `go run . status --home .sheetbase`: show app, PostgreSQL, and PostgREST status
 - `go run . stop --home .sheetbase`: stop managed processes
 - `go run . backup --home .sheetbase`: write a PostgreSQL dump under `.sheetbase/backups`
 - `go run . systemd --home /var/lib/sheetbase --bin /usr/local/bin/sheetbase`: print a systemd unit

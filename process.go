@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,7 @@ type appConfig struct {
 	postgrestBin  string
 	postgresPort  string
 	postgrestPort string
+	appAddr       string
 	jwtSecret     string
 	backupOut     string
 }
@@ -105,6 +107,7 @@ func statusApp(args []string) error {
 	}
 	paths := newAppPaths(cfg.home)
 	fmt.Printf("home: %s\n", paths.home)
+	fmt.Printf("app: %s\n", statusText(httpHealthy(cfg.appAddr)))
 	fmt.Printf("postgres: %s\n", statusText(runCommand(cfg.postgresBin, "pg_ctl", "-D", paths.postgresData, "status") == nil))
 	fmt.Printf("postgrest: %s\n", statusText(isRunning(paths.postgrestPid)))
 	return nil
@@ -122,6 +125,7 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	flags.StringVar(&cfg.home, "home", defaultHome, "Sheetbase home directory")
 	flags.StringVar(&cfg.postgresBin, "postgres-bin", envOrDefault("SHEETBASE_POSTGRES_BIN", ""), "directory containing initdb, pg_ctl, and psql")
 	flags.StringVar(&cfg.postgrestBin, "postgrest-bin", envOrDefault("SHEETBASE_POSTGREST_BIN", "postgrest"), "postgrest executable path")
+	flags.StringVar(&cfg.appAddr, "addr", envOrDefault("SHEETBASE_ADDR", ":8080"), "Sheetbase HTTP listen address")
 	flags.StringVar(&cfg.postgresPort, "postgres-port", envOrDefault("SHEETBASE_POSTGRES_PORT", "55432"), "managed PostgreSQL port")
 	flags.StringVar(&cfg.postgrestPort, "postgrest-port", envOrDefault("SHEETBASE_POSTGREST_PORT", "3000"), "managed PostgREST port")
 	flags.StringVar(&cfg.jwtSecret, "jwt-secret", envOrDefault("SHEETBASE_JWT_SECRET", defaultJWTSecret), "PostgREST JWT secret")
@@ -357,4 +361,17 @@ func waitForPort(address string, timeout time.Duration) error {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+func httpHealthy(addr string) bool {
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	client := http.Client{Timeout: 500 * time.Millisecond}
+	res, err := client.Get("http://" + addr + "/healthz")
+	if err != nil {
+		return false
+	}
+	defer res.Body.Close()
+	return res.StatusCode == http.StatusOK
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +47,21 @@ func TestInitAppCreatesHomeLayoutAndPostgRESTConfig(t *testing.T) {
 	}
 	if !strings.Contains(text, `jwt-secret = "`) {
 		t.Fatalf("config does not contain JWT secret: %s", text)
+	}
+}
+
+func TestHTTPHealthyChecksHealthz(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	addr := strings.TrimPrefix(server.URL, "http://")
+	if !httpHealthy(addr) {
+		t.Fatal("httpHealthy = false, want true")
 	}
 }
 
