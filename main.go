@@ -62,11 +62,21 @@ func serve(args []string) error {
 	flags.SetOutput(os.Stderr)
 	addr := flags.String("addr", ":8080", "HTTP listen address")
 	postgrestURL := flags.String("postgrest-url", envOrDefault("SHEETBASE_POSTGREST_URL", "http://127.0.0.1:3000"), "PostgREST URL for /api proxy")
+	dbURL := flags.String("db-url", envOrDefault("SHEETBASE_DB_URL", "postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable"), "PostgreSQL URL for auth; empty disables auth")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	handler, err := newUIHandler(*postgrestURL)
+	var auth *authService
+	if *dbURL != "" {
+		var err error
+		auth, err = newAuthService(*dbURL)
+		if err != nil {
+			return err
+		}
+	}
+
+	handler, err := newUIHandler(*postgrestURL, auth)
 	if err != nil {
 		return err
 	}
@@ -84,7 +94,7 @@ func printUsage() {
 
 Usage:
   sheetbase init [--home DIR]
-  sheetbase serve [-addr :8080] [-postgrest-url http://127.0.0.1:3000]
+  sheetbase serve [-addr :8080] [-postgrest-url http://127.0.0.1:3000] [-db-url postgres://...]
   sheetbase start [--home DIR]
   sheetbase stop [--home DIR]
   sheetbase restart [--home DIR]
@@ -99,7 +109,7 @@ Commands:
   help    Show this help`)
 }
 
-func newUIHandler(postgrestURL string) (http.Handler, error) {
+func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) {
 	dist, err := fs.Sub(uiDist, "ui/dist")
 	if err != nil {
 		return nil, fmt.Errorf("load embedded UI: %w", err)
@@ -118,7 +128,18 @@ func newUIHandler(postgrestURL string) (http.Handler, error) {
 			return
 		}
 
+		if auth != nil && strings.HasPrefix(r.URL.Path, "/auth/") {
+			handleAuth(auth, w, r)
+			return
+		}
+
 		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			if auth != nil {
+				if _, ok := auth.userID(r); !ok {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
 			apiProxy.ServeHTTP(w, r)
 			return
 		}
@@ -131,6 +152,21 @@ func newUIHandler(postgrestURL string) (http.Handler, error) {
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	}), nil
+}
+
+func handleAuth(auth *authService, w http.ResponseWriter, r *http.Request) {
+	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/auth/setup":
+		auth.handleSetup(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/auth/login":
+		auth.handleLogin(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/auth/logout":
+		auth.handleLogout(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/auth/me":
+		auth.handleMe(w, r)
+	default:
+		http.NotFound(w, r)
+	}
 }
 
 func newAPIProxy(rawURL string) (http.Handler, error) {

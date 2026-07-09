@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,7 +9,7 @@ import (
 )
 
 func TestUIHandlerServesAppShellAndHealth(t *testing.T) {
-	handler, err := newUIHandler("http://127.0.0.1:3000")
+	handler, err := newUIHandler("http://127.0.0.1:3000", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func TestUIHandlerProxiesAPIToPostgREST(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	handler, err := newUIHandler(backend.URL)
+	handler, err := newUIHandler(backend.URL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +63,41 @@ func TestUIHandlerProxiesAPIToPostgREST(t *testing.T) {
 	}
 }
 
+func TestAuthProtectsAPIProxy(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer backend.Close()
+
+	auth := &authService{store: &fakeUserStore{}, sessions: map[string]string{}}
+	handler, err := newUIHandler(backend.URL, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated API status = %d, want %d", res.Code, http.StatusUnauthorized)
+	}
+
+	login := httptest.NewRequest(http.MethodPost, "/auth/setup", strings.NewReader(`{"email":"admin@example.com","password":"long-enough-password"}`))
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, login)
+	if res.Code != http.StatusOK {
+		t.Fatalf("setup status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
+	req.AddCookie(res.Result().Cookies()[0])
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("authenticated API status = %d, want %d", res.Code, http.StatusOK)
+	}
+}
+
 func TestCleanAssetPath(t *testing.T) {
 	tests := map[string]string{
 		"":                      "index.html",
@@ -75,4 +111,17 @@ func TestCleanAssetPath(t *testing.T) {
 			t.Fatalf("cleanAssetPath(%q) = %q, want %q", input, got, want)
 		}
 	}
+}
+
+type fakeUserStore struct {
+	user userRecord
+}
+
+func (s *fakeUserStore) createFirstUser(_ context.Context, email, passwordHash string) (string, error) {
+	s.user = userRecord{ID: "user-1", Email: email, PasswordHash: passwordHash}
+	return s.user.ID, nil
+}
+
+func (s *fakeUserStore) userByEmail(_ context.Context, email string) (userRecord, error) {
+	return s.user, nil
 }

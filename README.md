@@ -28,3 +28,5 @@ Useful commands:
 
 The lifecycle commands expect `initdb`, `pg_ctl`, and `psql` on `PATH` or via
 `--postgres-bin`, and `postgrest` on `PATH` or via `--postgrest-bin`.
+When `serve` has a `-db-url`, `/api` is protected by `POST /auth/setup`,
+`POST /auth/login`, `GET /auth/me`, and `POST /auth/logout`.
