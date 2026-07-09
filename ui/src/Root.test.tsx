@@ -24,7 +24,7 @@ describe('Root', () => {
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'long-enough-password' } });
     fireEvent.click(screen.getByText('Create first admin'));
 
-    expect(await screen.findByRole('heading', { name: 'Companies' })).toBeTruthy();
+    expect(await screen.findByDisplayValue('Companies')).toBeTruthy();
   });
 
   it('signs out and returns to the auth screen', async () => {

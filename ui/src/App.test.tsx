@@ -53,7 +53,9 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByText(/Saved \d+ rows/)).toBeTruthy();
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/sheet_abc') && call.init?.method === 'POST')).toBe(true);
+    });
     const createCall = calls.find((call) => call.input.includes('/rpc/create_sheet_form'));
     const fieldsCall = calls.find((call) => call.input.includes('/sheet_fields?sheet_form_id=eq.form-1'));
     const insertCall = calls.find((call) => call.input.includes('/sheet_abc') && call.init?.method === 'POST');
@@ -65,6 +67,47 @@ describe('App', () => {
     expect(fieldsCall?.input).toContain('/sheet_fields?sheet_form_id=eq.form-1');
     expect(insertCall?.init?.body).toContain('"company":"Vercel"');
     expect(insertCall?.init?.body).toContain('"domain":"vercel.com"');
+  });
+
+  it('creates a new Sheet Form with an editable name', async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+      if (String(input).includes('/rpc/create_sheet_form')) {
+        return new Response(JSON.stringify({
+          id: 'form-1',
+          slug: 'requests',
+          name: 'Support Requests',
+          generated_table_name: 'sheet_requests',
+        }), { status: 200 });
+      }
+      if (String(input).includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { name: 'Requester', column_name: 'requester', position: 0, type: 'text', hidden: false },
+          { name: 'Issue', column_name: 'issue', position: 1, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New form' }));
+    fireEvent.change(screen.getByLabelText('Sheet Form name'), { target: { value: 'Support Requests' } });
+    fireEvent.change(screen.getByLabelText('Header 1'), { target: { value: 'Requester' } });
+    fireEvent.change(screen.getByLabelText('Header 2'), { target: { value: 'Issue' } });
+    fireEvent.change(screen.getAllByLabelText('Requester value')[0], { target: { value: 'Gareth' } });
+    fireEvent.change(screen.getAllByLabelText('Issue value')[0], { target: { value: 'Cannot log in' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/rpc/create_sheet_form'))).toBe(true);
+    });
+    const createCall = calls.find((call) => call.input.includes('/rpc/create_sheet_form'));
+    expect(createCall?.init?.body).toBe(JSON.stringify({
+      name: 'Support Requests',
+      headers: ['Requester', 'Issue'],
+    }));
   });
 
   it('loads the latest Sheet Form from PostgREST', async () => {

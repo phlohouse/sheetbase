@@ -7,7 +7,6 @@ import {
   Download,
   Filter,
   Folder,
-  HelpCircle,
   Home,
   Import,
   MoreHorizontal,
@@ -118,6 +117,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [rows, setRows] = useState(initialRows);
   const [activeCell, setActiveCell] = useState<ActiveCell>({ rowIndex: 0, columnIndex: 0, kind: 'body' });
   const [sheetForm, setSheetForm] = useState<SheetForm | null>(null);
+  const [formName, setFormName] = useState('Companies');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('Local draft');
   const gridRef = useRef<HTMLDivElement>(null);
@@ -143,6 +143,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         if (cancelled) return;
         const nextColumns = loadedColumns.length > 0 ? loadedColumns : [newColumn(0)];
         setSheetForm(form);
+        setFormName(form.name);
         setColumns(nextColumns);
         setRows(ensureBlankRow(loadedRows, nextColumns));
         setSaveState('saved');
@@ -207,6 +208,12 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
 
   const saveToAPI = async () => {
     const headers = columns.map((column) => column.label.trim()).filter(Boolean);
+    const name = formName.trim();
+    if (name === '') {
+      setSaveState('error');
+      setSaveMessage('Name this Sheet Form');
+      return;
+    }
     if (headers.length === 0) {
       setSaveState('error');
       setSaveMessage('Add at least one header');
@@ -218,7 +225,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
 
     try {
       const existingForm = sheetForm !== null;
-      const form = sheetForm ?? await createSheetForm('Companies', headers);
+      const form = sheetForm ?? await createSheetForm(name, headers);
       if (!sheetForm) {
         setSheetForm(form);
       }
@@ -251,6 +258,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setColumns(nextColumns);
       setRows([emptyRow('draft-1', nextColumns)]);
       setSheetForm(null);
+      setFormName(imported.name || 'Imported Sheet Form');
       setSaveState('idle');
       setSaveMessage(`Imported ${imported.headers.length} headers`);
     } catch (error) {
@@ -261,6 +269,17 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         stencilInputRef.current.value = '';
       }
     }
+  };
+
+  const createNewForm = () => {
+    const nextColumns = [newColumn(0), newColumn(1), newColumn(2)];
+    setFormName('Untitled Sheet Form');
+    setSheetForm(null);
+    setColumns(nextColumns);
+    setRows([emptyRow('draft-1', nextColumns)]);
+    setSaveState('idle');
+    setSaveMessage('Local draft');
+    requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: 0 }));
   };
 
   const moveCell = (from: ActiveCell, key: string) => {
@@ -362,10 +381,12 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       <main className="workspace">
         <header className="topbar">
           <div className="title-block">
-            <h1>Companies</h1>
-            <button className="ghost-icon" type="button" aria-label="Companies info">
-              <HelpCircle size={15} />
-            </button>
+            <input
+              aria-label="Sheet Form name"
+              className="title-input"
+              onChange={(event) => setFormName(event.target.value)}
+              value={formName}
+            />
           </div>
           <div className="topbar-actions">
             <div className="avatars" aria-label="Collaborators">
@@ -395,6 +416,10 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             <button className="toolbar-button primary-action" disabled={saveState === 'saving'} onClick={saveToAPI} type="button">
               <Save size={16} />
               {saveState === 'saving' ? 'Saving' : 'Save'}
+            </button>
+            <button className="toolbar-button" onClick={createNewForm} type="button">
+              <Plus size={16} />
+              New form
             </button>
             <button className="toolbar-button" onClick={() => stencilInputRef.current?.click()} type="button">
               <Import size={16} />
@@ -431,7 +456,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           </button>
         </section>
 
-        <section className="table-frame" aria-label="Companies Sheet Form">
+        <section className="table-frame" aria-label={`${formName || 'Untitled'} Sheet Form`}>
           <div className="data-grid" ref={gridRef} style={{ gridTemplateColumns: templateColumns }}>
             <div className="cell header select-cell">
               <input aria-label="Select all rows" type="checkbox" />
