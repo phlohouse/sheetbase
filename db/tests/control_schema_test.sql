@@ -4,6 +4,13 @@ begin;
 
 \i /work/db/migrations/001_control_schema.sql
 
+insert into users (id, email, password_hash)
+values
+  ('00000000-0000-0000-0000-000000000001', 'owner@example.com', 'hash'),
+  ('00000000-0000-0000-0000-000000000002', 'other@example.com', 'hash');
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
 create temp table created_form as
 select *
 from create_sheet_form('Revenue Tracker', array['1 Revenue', 'Company Name', 'Company Name']);
@@ -42,6 +49,60 @@ begin
   end if;
 end;
 $$;
+
+do $$
+declare
+  form_id uuid := (select id from created_form);
+  generated_table text := (select generated_table_name from created_form);
+  visible_count integer;
+begin
+  set local role sheetbase_api;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+  select count(*) into visible_count from sheet_forms;
+  if visible_count != 1 then
+    raise exception 'owner should see one sheet form, saw %', visible_count;
+  end if;
+
+  execute format('select count(*) from %I', generated_table) into visible_count;
+  if visible_count != 0 then
+    raise exception 'owner generated table query failed';
+  end if;
+
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
+  select count(*) into visible_count from sheet_forms;
+  if visible_count != 0 then
+    raise exception 'other user should not see sheet form, saw %', visible_count;
+  end if;
+
+  execute format('select count(*) from %I', generated_table) into visible_count;
+  if visible_count != 0 then
+    raise exception 'other user should not see generated rows, saw %', visible_count;
+  end if;
+
+  begin
+    perform add_sheet_field(form_id, 'Stolen Field');
+    raise exception 'other user should not add fields';
+  exception
+    when raise_exception then
+      if sqlerrm = 'other user should not add fields' then
+        raise;
+      end if;
+  end;
+
+  begin
+    perform count(*) from users;
+    raise exception 'sheetbase_api should not read users';
+  exception
+    when insufficient_privilege then
+      null;
+  end;
+
+  reset role;
+end;
+$$;
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 
 create temp table added_field as
 select *

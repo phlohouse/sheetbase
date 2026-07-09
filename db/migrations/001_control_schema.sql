@@ -142,6 +142,56 @@ begin
 end;
 $$;
 
+create or replace function current_sheetbase_user_id()
+returns uuid
+language plpgsql
+stable
+as $$
+begin
+  return coalesce(
+    nullif(current_setting('request.jwt.claim.sub', true), '')::uuid,
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb->>'sub')::uuid
+  );
+exception when others then
+  return null;
+end;
+$$;
+
+create or replace function can_access_sheet_form(sheet_form_id uuid, access text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from permissions p
+    where p.sheet_form_id = can_access_sheet_form.sheet_form_id
+      and p.user_id = current_sheetbase_user_id()
+      and (
+        access = 'read' and (p.can_read or p.can_write or p.can_admin)
+        or access = 'write' and (p.can_write or p.can_admin)
+        or access = 'admin' and p.can_admin
+      )
+  );
+$$;
+
+create or replace function can_access_sheet_table(generated_table_name text, access text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from sheet_forms sf
+    where sf.generated_table_name = can_access_sheet_table.generated_table_name
+      and can_access_sheet_form(sf.id, access)
+  );
+$$;
+
 create or replace function create_sheet_form(name text, headers text[])
 returns sheet_forms
 language plpgsql
@@ -154,7 +204,13 @@ declare
   column_name text;
   used_names text[] := array[]::text[];
   position integer := 0;
+  requester uuid;
 begin
+  requester := current_sheetbase_user_id();
+  if requester is null then
+    raise exception 'authenticated user is required';
+  end if;
+
   if name is null or trim(name) = '' then
     raise exception 'sheet form name is required';
   end if;
@@ -195,7 +251,32 @@ begin
   insert into sheet_views (sheet_form_id, name)
   values (form_row.id, 'Default');
 
+  insert into permissions (sheet_form_id, user_id, can_read, can_write, can_admin)
+  values (form_row.id, requester, true, true, true);
+
   execute format('grant select, insert, update, delete on table %I to sheetbase_api', form_row.generated_table_name);
+  execute format('alter table %I enable row level security', form_row.generated_table_name);
+  execute format(
+    'create policy sheetbase_generated_read on %I for select to sheetbase_api using (can_access_sheet_table(%L, ''read''))',
+    form_row.generated_table_name,
+    form_row.generated_table_name
+  );
+  execute format(
+    'create policy sheetbase_generated_write on %I for insert to sheetbase_api with check (can_access_sheet_table(%L, ''write''))',
+    form_row.generated_table_name,
+    form_row.generated_table_name
+  );
+  execute format(
+    'create policy sheetbase_generated_update on %I for update to sheetbase_api using (can_access_sheet_table(%L, ''write'')) with check (can_access_sheet_table(%L, ''write''))',
+    form_row.generated_table_name,
+    form_row.generated_table_name,
+    form_row.generated_table_name
+  );
+  execute format(
+    'create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''admin''))',
+    form_row.generated_table_name,
+    form_row.generated_table_name
+  );
   perform pg_notify('pgrst', 'reload schema');
 
   return form_row;
@@ -222,6 +303,9 @@ begin
   select * into form_row from sheet_forms where id = sheet_form_id;
   if not found then
     raise exception 'sheet form % not found', sheet_form_id;
+  end if;
+  if not can_access_sheet_form(form_row.id, 'admin') then
+    raise exception 'permission denied for sheet form %', sheet_form_id;
   end if;
 
   select coalesce(array_agg(sf.column_name order by sf.position), array[]::text[])
@@ -257,6 +341,10 @@ as $$
 declare
   field_row sheet_fields;
 begin
+  if not can_access_sheet_form(sheet_form_id, 'admin') then
+    raise exception 'permission denied for sheet form %', sheet_form_id;
+  end if;
+
   update sheet_fields
   set hidden = true
   where id = field_id
@@ -289,6 +377,9 @@ begin
   select * into form_row from sheet_forms where id = tighten_sheet_field_type.sheet_form_id;
   if not found then
     raise exception 'sheet form % not found', sheet_form_id;
+  end if;
+  if not can_access_sheet_form(form_row.id, 'admin') then
+    raise exception 'permission denied for sheet form %', sheet_form_id;
   end if;
 
   select * into field_row
@@ -337,9 +428,74 @@ begin
 end;
 $$;
 
+alter table sheet_forms enable row level security;
+alter table sheet_fields enable row level security;
+alter table sheet_views enable row level security;
+alter table permissions enable row level security;
+
+drop policy if exists sheet_forms_read on sheet_forms;
+create policy sheet_forms_read on sheet_forms
+for select to sheetbase_api
+using (can_access_sheet_form(id, 'read'));
+
+drop policy if exists sheet_fields_read on sheet_fields;
+create policy sheet_fields_read on sheet_fields
+for select to sheetbase_api
+using (can_access_sheet_form(sheet_form_id, 'read'));
+
+drop policy if exists sheet_views_read on sheet_views;
+create policy sheet_views_read on sheet_views
+for select to sheetbase_api
+using (can_access_sheet_form(sheet_form_id, 'read'));
+
+drop policy if exists permissions_read on permissions;
+create policy permissions_read on permissions
+for select to sheetbase_api
+using (user_id = current_sheetbase_user_id());
+
+do $$
+declare
+  form_row sheet_forms;
+begin
+  for form_row in select * from sheet_forms loop
+    execute format('grant select, insert, update, delete on table %I to sheetbase_api', form_row.generated_table_name);
+    execute format('alter table %I enable row level security', form_row.generated_table_name);
+    execute format('drop policy if exists sheetbase_generated_read on %I', form_row.generated_table_name);
+    execute format(
+      'create policy sheetbase_generated_read on %I for select to sheetbase_api using (can_access_sheet_table(%L, ''read''))',
+      form_row.generated_table_name,
+      form_row.generated_table_name
+    );
+    execute format('drop policy if exists sheetbase_generated_write on %I', form_row.generated_table_name);
+    execute format(
+      'create policy sheetbase_generated_write on %I for insert to sheetbase_api with check (can_access_sheet_table(%L, ''write''))',
+      form_row.generated_table_name,
+      form_row.generated_table_name
+    );
+    execute format('drop policy if exists sheetbase_generated_update on %I', form_row.generated_table_name);
+    execute format(
+      'create policy sheetbase_generated_update on %I for update to sheetbase_api using (can_access_sheet_table(%L, ''write'')) with check (can_access_sheet_table(%L, ''write''))',
+      form_row.generated_table_name,
+      form_row.generated_table_name,
+      form_row.generated_table_name
+    );
+    execute format('drop policy if exists sheetbase_generated_delete on %I', form_row.generated_table_name);
+    execute format(
+      'create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''admin''))',
+      form_row.generated_table_name,
+      form_row.generated_table_name
+    );
+  end loop;
+end;
+$$;
+
 grant usage on schema public to sheetbase_api;
-grant select, insert, update, delete on sheet_forms, sheet_fields, sheet_views, users, roles, permissions to sheetbase_api;
+revoke all on users, roles, permissions from sheetbase_api;
+grant select on sheet_forms, sheet_fields, sheet_views to sheetbase_api;
 grant execute on function create_sheet_form(text, text[]) to sheetbase_api;
 grant execute on function add_sheet_field(uuid, text) to sheetbase_api;
 grant execute on function hide_sheet_field(uuid, uuid) to sheetbase_api;
 grant execute on function tighten_sheet_field_type(uuid, uuid, text) to sheetbase_api;
+grant execute on function current_sheetbase_user_id() to sheetbase_api;
+grant execute on function can_access_sheet_form(uuid, text) to sheetbase_api;
+grant execute on function can_access_sheet_table(text, text) to sheetbase_api;

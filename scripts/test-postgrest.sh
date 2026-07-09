@@ -4,6 +4,8 @@ set -euo pipefail
 network="sheetbase-postgrest-test-$$"
 postgres="sheetbase-postgres-api-test-$$"
 postgrest="sheetbase-postgrest-api-test-$$"
+jwt_secret="sheetbase-dev-secret-change-me-32-bytes-minimum"
+user_id="00000000-0000-0000-0000-000000000001"
 
 cleanup() {
   docker rm -f "$postgrest" "$postgres" >/dev/null 2>&1 || true
@@ -30,6 +32,8 @@ done
 
 docker exec "$postgres" pg_isready -U postgres >/dev/null
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/001_control_schema.sql >/dev/null
+docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c \
+  "insert into users (id, email, password_hash) values ('$user_id', 'api@example.com', 'hash')" >/dev/null
 
 docker run \
   --detach \
@@ -39,6 +43,7 @@ docker run \
   --env PGRST_DB_URI="postgres://postgres:postgres@$postgres:5432/postgres" \
   --env PGRST_DB_SCHEMAS="public" \
   --env PGRST_DB_ANON_ROLE="sheetbase_api" \
+  --env PGRST_JWT_SECRET="$jwt_secret" \
   --env PGRST_OPENAPI_MODE="follow-privileges" \
   postgrest/postgrest:v12.2.8 >/dev/null
 
@@ -59,8 +64,27 @@ if [[ "$ready" != "yes" ]]; then
   exit 1
 fi
 
+jwt="$(
+  python3 - "$jwt_secret" "$user_id" <<'PY'
+import base64, hashlib, hmac, json, sys, time
+
+secret, user_id = sys.argv[1], sys.argv[2]
+
+def enc(value):
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode()
+
+header = enc(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
+payload = enc(json.dumps({"sub": user_id, "role": "sheetbase_api", "exp": int(time.time()) + 900}, separators=(",", ":")).encode())
+unsigned = f"{header}.{payload}"
+signature = enc(hmac.new(secret.encode(), unsigned.encode(), hashlib.sha256).digest())
+print(f"{unsigned}.{signature}")
+PY
+)"
+auth_header="Authorization: Bearer $jwt"
+
 form_json="$(
   curl --fail --silent \
+    --header "$auth_header" \
     --header 'Content-Type: application/json' \
     --header 'Prefer: return=representation' \
     --data '{"name":"API Companies","headers":["Company","Domain","Score"]}' \
@@ -76,13 +100,14 @@ if [[ ! "$generated_table" =~ ^sheet_[0-9a-f_]+$ ]]; then
 fi
 
 for _ in $(seq 1 80); do
-  if curl --fail --silent "$base_url/$generated_table?limit=1" >/dev/null 2>&1; then
+  if curl --fail --silent --header "$auth_header" "$base_url/$generated_table?limit=1" >/dev/null 2>&1; then
     break
   fi
   sleep 0.25
 done
 
 curl --fail --silent \
+  --header "$auth_header" \
   --header 'Content-Type: application/json' \
   --header 'Prefer: return=representation' \
   --data '[{"company":"Vercel","domain":"vercel.com","score":"Excellent"},{"company":"GitHub","domain":"github.com","score":"Good"},{"company":"Slack","domain":"slack.com","score":"Low"}]' \
@@ -90,6 +115,7 @@ curl --fail --silent \
 
 filtered="$(
   curl --fail --silent \
+    --header "$auth_header" \
     "$base_url/$generated_table?score=eq.Good&select=company,domain,score"
 )"
 filtered_company="$(printf '%s' "$filtered" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["company"])')"
@@ -100,6 +126,7 @@ fi
 
 ordered="$(
   curl --fail --silent \
+    --header "$auth_header" \
     "$base_url/$generated_table?select=company&order=company.desc&limit=1"
 )"
 ordered_company="$(printf '%s' "$ordered" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["company"])')"
@@ -110,6 +137,7 @@ fi
 
 metadata="$(
   curl --fail --silent \
+    --header "$auth_header" \
     "$base_url/sheet_fields?sheet_form_id=eq.$form_id&select=name,column_name,position&order=position.asc"
 )"
 metadata_count="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
