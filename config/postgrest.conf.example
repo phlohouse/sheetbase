@@ -4,3 +4,4 @@ db-anon-role = "sheetbase_api"
 server-host = "127.0.0.1"
 server-port = 3000
 openapi-mode = "follow-privileges"
+jwt-secret = "sheetbase-dev-secret-change-me-32-bytes-minimum"

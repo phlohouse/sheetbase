@@ -43,6 +43,9 @@ func TestInitAppCreatesHomeLayoutAndPostgRESTConfig(t *testing.T) {
 	if !strings.Contains(text, `db-anon-role = "sheetbase_api"`) {
 		t.Fatalf("config does not contain API role: %s", text)
 	}
+	if !strings.Contains(text, `jwt-secret = "`) {
+		t.Fatalf("config does not contain JWT secret: %s", text)
+	}
 }
 
 func TestParseAppConfigUsesEnvironmentDefaults(t *testing.T) {
@@ -51,6 +54,7 @@ func TestParseAppConfigUsesEnvironmentDefaults(t *testing.T) {
 	t.Setenv("SHEETBASE_POSTGREST_BIN", "/opt/postgrest")
 	t.Setenv("SHEETBASE_POSTGRES_PORT", "55444")
 	t.Setenv("SHEETBASE_POSTGREST_PORT", "3002")
+	t.Setenv("SHEETBASE_JWT_SECRET", "test-secret")
 
 	cfg, err := parseAppConfig("status", nil)
 	if err != nil {
@@ -68,5 +72,8 @@ func TestParseAppConfigUsesEnvironmentDefaults(t *testing.T) {
 	}
 	if cfg.postgrestPort != "3002" {
 		t.Fatalf("postgrestPort = %q", cfg.postgrestPort)
+	}
+	if cfg.jwtSecret != "test-secret" {
+		t.Fatalf("jwtSecret = %q", cfg.jwtSecret)
 	}
 }

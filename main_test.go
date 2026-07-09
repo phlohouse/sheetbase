@@ -65,11 +65,14 @@ func TestUIHandlerProxiesAPIToPostgREST(t *testing.T) {
 
 func TestAuthProtectsAPIProxy(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			t.Fatalf("missing bearer token: %q", r.Header.Get("Authorization"))
+		}
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer backend.Close()
 
-	auth := &authService{store: &fakeUserStore{}, sessions: map[string]string{}}
+	auth := &authService{store: &fakeUserStore{}, jwtSecret: defaultJWTSecret, sessions: map[string]string{}}
 	handler, err := newUIHandler(backend.URL, auth)
 	if err != nil {
 		t.Fatal(err)

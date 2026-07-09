@@ -24,6 +24,7 @@ type appConfig struct {
 	postgrestBin  string
 	postgresPort  string
 	postgrestPort string
+	jwtSecret     string
 }
 
 type appPaths struct {
@@ -121,6 +122,7 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	flags.StringVar(&cfg.postgrestBin, "postgrest-bin", envOrDefault("SHEETBASE_POSTGREST_BIN", "postgrest"), "postgrest executable path")
 	flags.StringVar(&cfg.postgresPort, "postgres-port", envOrDefault("SHEETBASE_POSTGRES_PORT", "55432"), "managed PostgreSQL port")
 	flags.StringVar(&cfg.postgrestPort, "postgrest-port", envOrDefault("SHEETBASE_POSTGREST_PORT", "3000"), "managed PostgREST port")
+	flags.StringVar(&cfg.jwtSecret, "jwt-secret", envOrDefault("SHEETBASE_JWT_SECRET", defaultJWTSecret), "PostgREST JWT secret")
 	if err := flags.Parse(args); err != nil {
 		return appConfig{}, err
 	}
@@ -218,7 +220,8 @@ db-anon-role = "sheetbase_api"
 server-host = "127.0.0.1"
 server-port = %s
 openapi-mode = "follow-privileges"
-`, cfg.postgresPort, cfg.postgrestPort)
+jwt-secret = "%s"
+`, cfg.postgresPort, cfg.postgrestPort, cfg.jwtSecret)
 	return os.WriteFile(paths.postgrestConfig, []byte(config), 0o644)
 }
 

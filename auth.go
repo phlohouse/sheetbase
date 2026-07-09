@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,9 +21,10 @@ import (
 )
 
 type authService struct {
-	store    userStore
-	sessions map[string]string
-	mu       sync.Mutex
+	store     userStore
+	jwtSecret string
+	sessions  map[string]string
+	mu        sync.Mutex
 }
 
 type userStore interface {
@@ -34,7 +38,7 @@ type userRecord struct {
 	PasswordHash string
 }
 
-func newAuthService(dbURL string) (*authService, error) {
+func newAuthService(dbURL, jwtSecret string) (*authService, error) {
 	db, err := sql.Open("pgx", dbURL)
 	if err != nil {
 		return nil, fmt.Errorf("open auth database: %w", err)
@@ -43,7 +47,7 @@ func newAuthService(dbURL string) (*authService, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("connect auth database: %w", err)
 	}
-	return &authService{store: sqlUserStore{db: db}, sessions: map[string]string{}}, nil
+	return &authService{store: sqlUserStore{db: db}, jwtSecret: jwtSecret, sessions: map[string]string{}}, nil
 }
 
 func (a *authService) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +147,19 @@ func randomToken() string {
 		panic(err)
 	}
 	return hex.EncodeToString(bytes[:])
+}
+
+func (a *authService) jwt(userID string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	payload, _ := json.Marshal(map[string]any{
+		"sub":  userID,
+		"role": "sheetbase_api",
+		"exp":  time.Now().Add(15 * time.Minute).Unix(),
+	})
+	unsigned := header + "." + base64.RawURLEncoding.EncodeToString(payload)
+	mac := hmac.New(sha256.New, []byte(a.jwtSecret))
+	_, _ = mac.Write([]byte(unsigned))
+	return unsigned + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func writeJSON(w http.ResponseWriter, value any) {

@@ -21,6 +21,8 @@ var uiDist embed.FS
 //go:embed db/migrations/*.sql
 var migrationFiles embed.FS
 
+const defaultJWTSecret = "sheetbase-dev-secret-change-me-32-bytes-minimum"
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -63,6 +65,7 @@ func serve(args []string) error {
 	addr := flags.String("addr", ":8080", "HTTP listen address")
 	postgrestURL := flags.String("postgrest-url", envOrDefault("SHEETBASE_POSTGREST_URL", "http://127.0.0.1:3000"), "PostgREST URL for /api proxy")
 	dbURL := flags.String("db-url", envOrDefault("SHEETBASE_DB_URL", "postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable"), "PostgreSQL URL for auth; empty disables auth")
+	jwtSecret := flags.String("jwt-secret", envOrDefault("SHEETBASE_JWT_SECRET", defaultJWTSecret), "JWT secret shared with PostgREST")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -70,7 +73,7 @@ func serve(args []string) error {
 	var auth *authService
 	if *dbURL != "" {
 		var err error
-		auth, err = newAuthService(*dbURL)
+		auth, err = newAuthService(*dbURL, *jwtSecret)
 		if err != nil {
 			return err
 		}
@@ -135,10 +138,12 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 
 		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
 			if auth != nil {
-				if _, ok := auth.userID(r); !ok {
+				userID, ok := auth.userID(r)
+				if !ok {
 					http.Error(w, "unauthorized", http.StatusUnauthorized)
 					return
 				}
+				r.Header.Set("Authorization", "Bearer "+auth.jwt(userID))
 			}
 			apiProxy.ServeHTTP(w, r)
 			return
