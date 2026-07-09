@@ -146,6 +146,18 @@ if [[ "$company_width" != "260" ]]; then
   exit 1
 fi
 
+saved_order="$(curl --fail --silent \
+  --cookie "$cookie_file" \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: return=representation' \
+  --data "{\"sheet_form_id\":\"$form_id\",\"column_order\":[\"$rows_column\",\"company\"]}" \
+  "http://127.0.0.1:18080/api/rpc/update_sheet_view_column_order")"
+first_column="$(printf '%s' "$saved_order" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sort_filter_state"]["column_order"][0])')"
+if [[ "$first_column" != "$rows_column" ]]; then
+  echo "View order did not persist: $saved_order" >&2
+  exit 1
+fi
+
 curl --fail --silent \
   --cookie "$cookie_file" \
   --request PATCH \

@@ -490,6 +490,41 @@ begin
 end;
 $$;
 
+create or replace function update_sheet_view_column_order(sheet_form_id uuid, column_order text[])
+returns sheet_views
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  view_row sheet_views;
+  state jsonb;
+begin
+  if column_order is null then
+    raise exception 'column order is required';
+  end if;
+  if not can_access_sheet_form(sheet_form_id, 'write') then
+    raise exception 'permission denied for sheet form %', sheet_form_id;
+  end if;
+
+  state := jsonb_build_object('column_order', column_order);
+
+  update sheet_views
+  set sort_filter_state = sort_filter_state || state
+  where sheet_views.sheet_form_id = update_sheet_view_column_order.sheet_form_id
+    and name = 'Default'
+  returning * into view_row;
+
+  if not found then
+    insert into sheet_views (sheet_form_id, name, sort_filter_state)
+    values (sheet_form_id, 'Default', state)
+    returning * into view_row;
+  end if;
+
+  return view_row;
+end;
+$$;
+
 alter table sheet_forms enable row level security;
 alter table sheet_fields enable row level security;
 alter table sheet_views enable row level security;
@@ -560,6 +595,7 @@ grant execute on function rename_sheet_form(uuid, text) to sheetbase_api;
 grant execute on function hide_sheet_field(uuid, uuid) to sheetbase_api;
 grant execute on function tighten_sheet_field_type(uuid, uuid, text) to sheetbase_api;
 grant execute on function update_sheet_view_widths(uuid, jsonb) to sheetbase_api;
+grant execute on function update_sheet_view_column_order(uuid, text[]) to sheetbase_api;
 grant execute on function current_sheetbase_user_id() to sheetbase_api;
 grant execute on function can_access_sheet_form(uuid, text) to sheetbase_api;
 grant execute on function can_access_sheet_table(text, text) to sheetbase_api;

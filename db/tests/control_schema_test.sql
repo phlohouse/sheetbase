@@ -146,6 +146,7 @@ declare
   hidden_row sheet_fields;
   column_type text;
   view_widths jsonb;
+  view_state jsonb;
 begin
   if field_column != 'headcount' then
     raise exception 'unexpected added field column: %', field_column;
@@ -191,6 +192,14 @@ begin
 
   if view_widths ->> field_column != '240' then
     raise exception 'view widths were not saved: %', view_widths;
+  end if;
+
+  select sort_filter_state
+  from update_sheet_view_column_order(form_id, array[field_column, 'company_name'])
+  into view_state;
+
+  if view_state -> 'column_order' ->> 0 != field_column then
+    raise exception 'view order was not saved: %', view_state;
   end if;
 end;
 $$;

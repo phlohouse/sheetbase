@@ -19,6 +19,7 @@ export interface SheetView {
   sheet_form_id: string;
   name: string;
   column_widths: Record<string, number>;
+  sort_filter_state: { column_order?: string[] };
 }
 
 const postgrestUrl = import.meta.env.VITE_POSTGREST_URL ?? '/api';
@@ -38,7 +39,7 @@ export async function listSheetFields(sheetFormId: string, fetcher: typeof fetch
 export async function listSheetViews(sheetFormId: string, fetcher: typeof fetch = fetch): Promise<SheetView[]> {
   const filter = encodeURIComponent(`eq.${sheetFormId}`);
   return request<SheetView[]>(
-    `${postgrestUrl}/sheet_views?sheet_form_id=${filter}&select=id,sheet_form_id,name,column_widths&order=created_at.asc`,
+    `${postgrestUrl}/sheet_views?sheet_form_id=${filter}&select=id,sheet_form_id,name,column_widths,sort_filter_state&order=created_at.asc`,
     fetcher,
   );
 }
@@ -131,6 +132,21 @@ export async function updateSheetViewWidths(
       Prefer: 'return=representation',
     },
     body: JSON.stringify({ sheet_form_id: sheetFormId, widths }),
+  });
+}
+
+export async function updateSheetViewColumnOrder(
+  sheetFormId: string,
+  columnOrder: string[],
+  fetcher: typeof fetch = fetch,
+): Promise<SheetView> {
+  return request<SheetView>(`${postgrestUrl}/rpc/update_sheet_view_column_order`, fetcher, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ sheet_form_id: sheetFormId, column_order: columnOrder }),
   });
 }
 

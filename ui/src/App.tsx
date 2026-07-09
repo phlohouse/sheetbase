@@ -20,7 +20,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetForm, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewWidths } from './api';
+import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetForm, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status' | 'integer' | 'numeric' | 'boolean' | 'date' | 'timestamptz';
@@ -166,7 +166,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       const fields = await listSheetFields(form.id);
       const views = await listSheetViews(form.id);
       const visibleFields = fields.filter((field) => !field.hidden);
-      const loadedColumns = columnsFromFields(visibleFields, views[0]?.column_widths ?? {});
+      const loadedColumns = columnsFromFields(visibleFields, views[0]?.column_widths ?? {}, views[0]?.sort_filter_state?.column_order ?? []);
       const loadedRows = rowsFromRecords(
         await listRows<Record<string, string | null>>(form.generated_table_name),
         loadedColumns,
@@ -252,6 +252,25 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     } catch (error) {
       setSaveState('error');
       setSaveMessage(error instanceof Error ? error.message : 'Could not save column widths');
+    }
+  };
+
+  const moveColumn = async (columnIndex: number, delta: number) => {
+    const targetIndex = columnIndex + delta;
+    if (targetIndex < 0 || targetIndex >= columns.length) return;
+    const nextColumns = [...columns];
+    const [column] = nextColumns.splice(columnIndex, 1);
+    nextColumns.splice(targetIndex, 0, column);
+    setColumns(nextColumns);
+    if (!sheetForm) return;
+
+    try {
+      await updateSheetViewColumnOrder(sheetForm.id, nextColumns.map((currentColumn) => currentColumn.key));
+      setSaveState('saved');
+      setSaveMessage('Column order saved');
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not save column order');
     }
   };
 
@@ -625,6 +644,24 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                     <em>{column.type}</em>
                   )}
                   <button
+                    aria-label={`Move ${column.label || `Field ${columnIndex + 1}`} left`}
+                    className="header-action"
+                    onClick={() => void moveColumn(columnIndex, -1)}
+                    title="Move field left"
+                    type="button"
+                  >
+                    &lt;
+                  </button>
+                  <button
+                    aria-label={`Move ${column.label || `Field ${columnIndex + 1}`} right`}
+                    className="header-action"
+                    onClick={() => void moveColumn(columnIndex, 1)}
+                    title="Move field right"
+                    type="button"
+                  >
+                    &gt;
+                  </button>
+                  <button
                     aria-label={`Narrow ${column.label || `Field ${columnIndex + 1}`}`}
                     className="header-action"
                     onClick={() => void resizeColumn(columnIndex, -24)}
@@ -715,14 +752,17 @@ async function ensureFields(sheetFormId: string, headers: string[], fields: Shee
   return [...fields, ...added].sort((left, right) => left.position - right.position);
 }
 
-function columnsFromFields(fields: SheetField[], widths: Record<string, number> = {}): Column[] {
-  return fields.map((field) => ({
+function columnsFromFields(fields: SheetField[], widths: Record<string, number> = {}, columnOrder: string[] = []): Column[] {
+  const columns = fields.map((field) => ({
     key: field.column_name,
     fieldId: field.id,
     label: field.name,
     type: field.type as FieldType,
     width: widths[field.column_name] ?? Math.max(160, Math.min(280, field.name.length * 12 + 96)),
   }));
+  if (columnOrder.length === 0) return columns;
+  const rank = new Map(columnOrder.map((key, index) => [key, index]));
+  return [...columns].sort((left, right) => (rank.get(left.key) ?? columns.length) - (rank.get(right.key) ?? columns.length));
 }
 
 function rowsFromRecords(records: Record<string, string | null>[], columns: Column[], fields: SheetField[]): Row[] {

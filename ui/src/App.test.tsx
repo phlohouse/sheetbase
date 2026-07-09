@@ -284,6 +284,64 @@ describe('App', () => {
     expect(await screen.findByText('Column widths saved')).toBeTruthy();
   });
 
+  it('loads and saves column order through the default Sheet View', async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ input: url, init });
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([{
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_companies',
+        }]), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-2', name: 'Rows', column_name: 'rows', position: 1, type: 'integer', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_views')) {
+        return new Response(JSON.stringify([{
+          id: 'view-1',
+          sheet_form_id: 'form-1',
+          name: 'Default',
+          column_widths: {},
+          sort_filter_state: { column_order: ['rows', 'company'] },
+        }]), { status: 200 });
+      }
+      if (url.includes('/rpc/update_sheet_view_column_order')) {
+        return new Response(JSON.stringify({
+          id: 'view-1',
+          sheet_form_id: 'form-1',
+          name: 'Default',
+          column_widths: {},
+          sort_filter_state: { column_order: ['company', 'rows'] },
+        }), { status: 200 });
+      }
+      if (url.includes('/sheet_companies')) {
+        return new Response(JSON.stringify([{ id: 'row-1', company: 'Acme Labs', rows: 42 }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue('42')).toBeTruthy();
+    expect(screen.getByLabelText('Header 1')).toHaveProperty('value', 'Rows');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move Rows right' }));
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/rpc/update_sheet_view_column_order'))).toBe(true);
+    });
+    const orderCall = calls.find((call) => call.input.includes('/rpc/update_sheet_view_column_order'));
+    expect(orderCall?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', column_order: ['company', 'rows'] }));
+    expect(await screen.findByText('Column order saved')).toBeTruthy();
+  });
+
   it('switches between Sheet Forms from the sidebar', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
