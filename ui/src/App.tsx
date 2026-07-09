@@ -503,14 +503,6 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               value={formName}
             />
           </div>
-        </header>
-
-        <section className="view-header" aria-label="Current view">
-          <button className="view-pill" type="button">
-            <Table2 size={16} />
-            Sheet view
-            <ChevronDown size={14} />
-          </button>
           <div className="view-actions">
             <button className="toolbar-button" type="button">
               <Settings size={16} />
@@ -541,7 +533,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               <ChevronDown size={14} />
             </a>
           </div>
-        </section>
+        </header>
 
         <section className="filterbar" aria-label="Filters and sorting">
           <div className={`save-status ${saveState}`} role="status">

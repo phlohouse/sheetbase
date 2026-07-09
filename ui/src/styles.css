@@ -57,7 +57,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px minmax(760px, 1fr);
+  grid-template-columns: 232px minmax(760px, 1fr);
   min-height: 100vh;
   background:
     linear-gradient(to bottom, oklch(1 0 0 / 0.96), oklch(1 0 0 / 0.80)),
@@ -108,9 +108,9 @@ button {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   min-height: 100vh;
-  padding: 18px 12px;
+  padding: 14px 10px;
   border-right: 1px solid var(--line);
   background: var(--sidebar);
 }
@@ -161,8 +161,7 @@ button {
 .command-button,
 .icon-button,
 .toolbar-button,
-.add-filter,
-.view-pill {
+.add-filter {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -203,7 +202,6 @@ kbd {
 .icon-button:hover,
 .toolbar-button:hover,
 .add-filter:hover,
-.view-pill:hover,
 .cell:hover {
   background: var(--surface-muted);
 }
@@ -281,8 +279,9 @@ input:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 68px;
-  padding: 0 22px;
+  gap: 16px;
+  height: 58px;
+  padding: 0 18px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -310,16 +309,6 @@ input:focus-visible {
   outline: none;
 }
 
-.view-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 70px;
-  padding: 0 22px;
-  border-bottom: 1px solid var(--line);
-}
-
-.view-pill,
 .toolbar-button {
   padding: 0 11px;
 }
@@ -340,13 +329,9 @@ input:focus-visible {
   background: var(--primary-hover);
 }
 
-.view-pill {
-  height: 36px;
-  font-size: 15px;
-  font-weight: 650;
-}
-
 .view-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -356,8 +341,8 @@ input:focus-visible {
 
 .filterbar {
   gap: 8px;
-  height: 54px;
-  padding: 0 22px;
+  height: 44px;
+  padding: 0 18px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-raised);
 }
@@ -395,11 +380,11 @@ input:focus-visible {
 
 .table-frame {
   overflow: auto;
-  height: calc(100vh - 192px);
+  height: calc(100vh - 102px);
 }
 
 .table-frame.with-api-summary {
-  height: calc(100vh - 251px);
+  height: calc(100vh - 161px);
 }
 
 .data-grid {
@@ -657,7 +642,6 @@ input[type='checkbox'] {
     height: 17px;
   }
 
-  .view-header,
   .topbar {
     padding-inline: 14px;
   }
