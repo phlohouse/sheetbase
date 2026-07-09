@@ -8,7 +8,6 @@ import {
   EyeOff,
   Plus,
   Save,
-  Settings,
   Sparkles,
   Table2,
   TerminalSquare,
@@ -123,6 +122,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('Local draft');
   const gridRef = useRef<HTMLDivElement>(null);
+  const apiSummaryRef = useRef<HTMLElement>(null);
   const stencilInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -409,6 +409,15 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: 0 }));
   };
 
+  const showAPIEndpoint = () => {
+    if (!sheetForm) {
+      setSaveMessage('Save a Sheet Form to create an API endpoint');
+      return;
+    }
+    setSaveMessage(`API endpoint: /api/${sheetForm.generated_table_name}`);
+    apiSummaryRef.current?.scrollIntoView({ block: 'nearest' });
+  };
+
   const moveCell = (from: ActiveCell, key: string, shiftKey = false) => {
     let next: ActiveCell = { ...from };
     if (key === 'ArrowLeft') next.columnIndex = Math.max(0, from.columnIndex - 1);
@@ -481,7 +490,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             <Import size={15} />
             Import Stencil config
           </button>
-          <button className="nav-action" onClick={() => setSaveMessage(sheetForm ? `API endpoint: /api/${sheetForm.generated_table_name}` : 'Save a Sheet Form to create an API endpoint')} type="button">
+          <button className="nav-action" onClick={showAPIEndpoint} type="button">
             <TerminalSquare size={15} />
             API endpoint
           </button>
@@ -504,10 +513,6 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             />
           </div>
           <div className="view-actions">
-            <button className="toolbar-button" type="button">
-              <Settings size={16} />
-              View settings
-            </button>
             <button className="toolbar-button primary-action" disabled={saveState === 'saving'} onClick={saveToAPI} type="button">
               <Save size={16} />
               {saveState === 'saving' ? 'Saving' : 'Save'}
@@ -530,7 +535,6 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             <a className="toolbar-button" href="/admin/export">
               <Download size={16} />
               Export
-              <ChevronDown size={14} />
             </a>
           </div>
         </header>
@@ -545,7 +549,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         </section>
 
         {sheetForm ? (
-          <section className="api-summary" aria-label="API documentation">
+          <section className="api-summary" aria-label="API documentation" ref={apiSummaryRef}>
             <div>
               <strong>API endpoint</strong>
               <code>/api/{sheetForm.generated_table_name}</code>
