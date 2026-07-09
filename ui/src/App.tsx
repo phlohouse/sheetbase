@@ -1,19 +1,15 @@
 import {
-  Bell,
   Braces,
   ChevronDown,
   Columns3,
   Database,
   Download,
   Filter,
-  Folder,
-  Home,
   Import,
   EyeOff,
   MoreHorizontal,
   Plus,
   Save,
-  Search,
   Settings,
   Sparkles,
   Table2,
@@ -221,11 +217,6 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         ? { ...currentRow, values: { ...currentRow.values, [columnKey]: value } }
         : currentRow
     ))));
-  };
-
-  const showSidebarMessage = (message: string) => {
-    setSaveState('idle');
-    setSaveMessage(message);
   };
 
   const addColumn = () => {
@@ -459,41 +450,16 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           <ChevronDown size={16} />
         </div>
 
-        <div className="quick-row">
-          <button className="command-button" type="button">
-            <Sparkles size={15} />
-            Quick actions
-            <kbd>⌘K</kbd>
-          </button>
-          <button className="icon-button" type="button" aria-label="Search">
-            <Search size={17} />
-          </button>
-        </div>
-
-        <nav className="nav-list">
-          <button onClick={() => focusCell(activeCell)} type="button">
-            <Home size={16} />
-            Home
-          </button>
-          <button disabled type="button">
-            <Bell size={16} />
-            Notifications
-          </button>
-          <button onClick={() => showSidebarMessage('Managed Postgres is running under the Sheetbase home')} type="button">
-            <Database size={16} />
-            Managed Postgres
-          </button>
-          <button onClick={() => showSidebarMessage(sheetForm ? `API endpoint: /api/${sheetForm.generated_table_name}` : 'Save a Sheet Form to create an API endpoint')} type="button">
-            <TerminalSquare size={16} />
-            API surface
-          </button>
-        </nav>
+        <button className="command-button" onClick={createNewForm} type="button">
+          <Plus size={15} />
+          New form
+        </button>
 
         <div className="nav-section">
-          <button className="section-title" type="button">
+          <div className="section-title">
             <ChevronDown size={14} />
             Sheet Forms
-          </button>
+          </div>
           <div className="form-list">
             {(sheetForms.length > 0 ? sheetForms : [{ id: 'draft', name: formName } as SheetForm]).map((form) => (
               <a
@@ -512,15 +478,15 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           </div>
         </div>
 
-        <div className="nav-section muted-nav">
-          <button className="section-title" type="button">
-            <ChevronDown size={14} />
-            Imports
+        <div className="nav-section">
+          <button className="nav-action" onClick={() => stencilInputRef.current?.click()} type="button">
+            <Import size={15} />
+            Import Stencil config
           </button>
-          <a href="#stencil">
-            <Folder size={15} />
-            Stencil configs
-          </a>
+          <button className="nav-action" onClick={() => setSaveMessage(sheetForm ? `API endpoint: /api/${sheetForm.generated_table_name}` : 'Save a Sheet Form to create an API endpoint')} type="button">
+            <TerminalSquare size={15} />
+            API endpoint
+          </button>
         </div>
       </aside>
 

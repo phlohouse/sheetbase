@@ -151,17 +151,12 @@ button {
   line-height: 16px;
 }
 
-.quick-row,
 .topbar-actions,
 .view-actions,
 .filterbar,
 .title-block {
   display: flex;
   align-items: center;
-}
-
-.quick-row {
-  gap: 8px;
 }
 
 .command-button,
@@ -228,20 +223,14 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
-.nav-list,
 .form-list,
 .nav-section {
   display: flex;
   flex-direction: column;
 }
 
-.nav-list {
-  gap: 2px;
-}
-
-.nav-list button,
-.form-list a,
-.muted-nav a {
+.nav-action,
+.form-list a {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -258,21 +247,10 @@ input:focus-visible {
   cursor: pointer;
 }
 
-.nav-list button:hover,
+.nav-action:hover,
 .form-list a:hover,
-.muted-nav a:hover,
 .form-list a.active {
   background: var(--surface);
-}
-
-.nav-list button:disabled {
-  color: var(--muted);
-  cursor: not-allowed;
-  opacity: 0.58;
-}
-
-.nav-list button:disabled:hover {
-  background: transparent;
 }
 
 .nav-section {
@@ -290,7 +268,6 @@ input:focus-visible {
   color: var(--muted);
   font-size: 13px;
   font-weight: 560;
-  cursor: pointer;
 }
 
 .form-list a span {
@@ -301,11 +278,6 @@ input:focus-visible {
   color: var(--subtle);
   font-size: 12px;
   font-style: normal;
-}
-
-.muted-nav {
-  margin-top: auto;
-  opacity: 0.82;
 }
 
 .workspace {
@@ -729,22 +701,18 @@ input[type='checkbox'] {
   .workspace-switcher div:not(.mark),
   .workspace-switcher svg,
   .command-button,
-  .nav-list a span,
   .form-list a span,
   .form-list a em,
-  .section-title,
-  .muted-nav {
+  .section-title {
     display: none;
   }
 
-  .nav-list a,
   .form-list a {
     justify-content: center;
     padding: 0;
     font-size: 0;
   }
 
-  .nav-list a svg,
   .form-list a svg {
     width: 17px;
     height: 17px;

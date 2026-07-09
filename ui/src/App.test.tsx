@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
@@ -42,16 +42,30 @@ describe('App', () => {
     await waitFor(() => expect(document.activeElement).toBe(company));
   });
 
-  it('makes sidebar utility controls visible actions', async () => {
+  it('keeps the sidebar to working actions', async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'API surface' }));
+    expect(screen.queryByText('Notifications')).toBeNull();
+    expect(screen.queryByText('Managed Postgres')).toBeNull();
+    expect(screen.queryByText('Home')).toBeNull();
+
+    const sidebar = screen.getByLabelText('Workspace navigation');
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'New form' }));
+    expect(screen.getByDisplayValue('Untitled Sheet Form')).toBeTruthy();
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'API endpoint' }));
     expect(await screen.findByText('Save a Sheet Form to create an API endpoint')).toBeTruthy();
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Managed Postgres' }));
-    expect(await screen.findByText('Managed Postgres is running under the Sheetbase home')).toBeTruthy();
+  it('opens Stencil import from the sidebar', () => {
+    const { container } = render(<App />);
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).toBeTruthy();
+    const clickSpy = vi.spyOn(fileInput!, 'click').mockImplementation(() => undefined);
 
-    expect(screen.getByRole('button', { name: 'Notifications' })).toHaveProperty('disabled', true);
+    const sidebar = screen.getByLabelText('Workspace navigation');
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Import Stencil config' }));
+    expect(clickSpy).toHaveBeenCalled();
   });
 
   it('saves headers and rows through PostgREST', async () => {
@@ -137,7 +151,7 @@ describe('App', () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'New form' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'New form' })[0]);
     fireEvent.change(screen.getByLabelText('Sheet Form name'), { target: { value: 'Support Requests' } });
     fireEvent.change(screen.getByLabelText('Header 1'), { target: { value: 'Requester' } });
     fireEvent.change(screen.getByLabelText('Header 2'), { target: { value: 'Issue' } });
@@ -187,7 +201,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByText('No Sheet Forms yet')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'New form' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'New form' })[0]);
     fireEvent.change(screen.getByLabelText('Header 1'), { target: { value: 'Company' } });
     fireEvent.change(screen.getAllByLabelText('Company value')[0], { target: { value: 'Acme Labs' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
