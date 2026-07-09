@@ -578,7 +578,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                     onChange={(event) => updateHeader(columnIndex, event.target.value)}
                     onFocus={() => setActiveCell({ kind: 'header', rowIndex: 0, columnIndex })}
                     onKeyDown={(event) => handleKeyDown(event, { kind: 'header', rowIndex: 0, columnIndex })}
-                    placeholder={`Field ${columnIndex + 1}`}
+                    placeholder="Column name"
                     value={column.label}
                   />
                   {column.fieldId ? (

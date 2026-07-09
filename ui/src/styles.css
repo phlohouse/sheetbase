@@ -468,7 +468,7 @@ input:focus-visible {
 }
 
 .header-action {
-  display: grid;
+  display: none;
   flex: 0 0 auto;
   width: 24px;
   height: 24px;
@@ -478,12 +478,11 @@ input:focus-visible {
   background: transparent;
   color: var(--subtle);
   cursor: pointer;
-  opacity: 0;
 }
 
 .column-header:hover .header-action,
 .column-header:focus-within .header-action {
-  opacity: 1;
+  display: grid;
 }
 
 .header-action:hover {
