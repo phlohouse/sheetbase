@@ -1,7 +1,10 @@
-.PHONY: api-test build db-test test serve ui-build
+.PHONY: api-test build db-test linux test serve ui-build
 
 build: ui-build
 	go build -o bin/sheetbase .
+
+linux: ui-build
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/sheetbase-linux-amd64 .
 
 test: ui-build
 	cd ui && npm test
