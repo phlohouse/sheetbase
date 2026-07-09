@@ -50,6 +50,8 @@ func run(args []string) error {
 		return startApp(args[1:])
 	case "migrate":
 		return migrateApp(args[1:])
+	case "upgrade":
+		return migrateApp(args[1:])
 	case "doctor":
 		return doctorApp(args[1:])
 	case "status":
@@ -145,6 +147,7 @@ Usage:
   sheetbase stop [--home DIR]
   sheetbase restart [--home DIR]
   sheetbase migrate [--home DIR]
+  sheetbase upgrade [--home DIR]
   sheetbase doctor [--home DIR]
   sheetbase status [--home DIR]
   sheetbase backup [--home DIR] [--out FILE]
@@ -158,6 +161,7 @@ Commands:
   start   Start managed PostgreSQL and PostgREST processes
   stop    Stop managed PostgreSQL and PostgREST processes
   migrate Apply embedded database migrations
+  upgrade Apply embedded database migrations
   doctor  Check required PostgreSQL and PostgREST commands
   status  Show managed process status
   backup  Write a PostgreSQL custom-format dump

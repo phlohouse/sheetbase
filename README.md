@@ -29,6 +29,7 @@ Useful commands:
 - `go run . start --home .sheetbase`: start managed PostgreSQL and PostgREST containers
 - `go run . doctor --home .sheetbase`: check required external commands
 - `go run . migrate --home .sheetbase`: apply embedded database migrations
+- `go run . upgrade --home .sheetbase`: apply embedded database migrations during upgrade
 - `go run . status --home .sheetbase`: show app, PostgreSQL, and PostgREST status
 - `go run . stop --home .sheetbase`: stop managed containers
 - `go run . backup --home .sheetbase`: write a PostgreSQL dump under `.sheetbase/backups`

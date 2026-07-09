@@ -133,8 +133,8 @@ func TestUsageMentionsMigrate(t *testing.T) {
 	os.Stdout = stdout
 	_, _ = output.ReadFrom(reader)
 
-	if !strings.Contains(output.String(), "sheetbase migrate") {
-		t.Fatalf("usage missing migrate:\n%s", output.String())
+	if !strings.Contains(output.String(), "sheetbase migrate") || !strings.Contains(output.String(), "sheetbase upgrade") {
+		t.Fatalf("usage missing migration commands:\n%s", output.String())
 	}
 }
 
