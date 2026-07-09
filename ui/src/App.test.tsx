@@ -276,6 +276,91 @@ describe('App', () => {
     expect(screen.getByText('Field hidden')).toBeTruthy();
   });
 
+  it('tightens an existing field type through PostgREST RPC', async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ input: url, init });
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([{
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_companies',
+        }]), { status: 200 });
+      }
+      if (url.includes('/rpc/tighten_sheet_field_type')) {
+        return new Response(JSON.stringify({
+          id: 'field-2',
+          name: 'Rows',
+          column_name: 'rows',
+          position: 1,
+          type: 'integer',
+          hidden: false,
+        }), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-2', name: 'Rows', column_name: 'rows', position: 1, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_companies')) {
+        return new Response(JSON.stringify([{ id: 'row-1', company: 'Acme Labs', rows: '42' }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue('42')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Type for Rows'), { target: { value: 'integer' } });
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/rpc/tighten_sheet_field_type'))).toBe(true);
+    });
+    const tightenCall = calls.find((call) => call.input.includes('/rpc/tighten_sheet_field_type'));
+    expect(tightenCall?.init?.body).toBe(JSON.stringify({
+      sheet_form_id: 'form-1',
+      field_id: 'field-2',
+      target_type: 'integer',
+    }));
+    expect(await screen.findByText('Changed Rows to integer')).toBeTruthy();
+  });
+
+  it('shows the database error when a field type cannot be tightened safely', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([{
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_companies',
+        }]), { status: 200 });
+      }
+      if (url.includes('/rpc/tighten_sheet_field_type')) {
+        return new Response('column contains values that cannot be converted to integer', { status: 400 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_companies')) {
+        return new Response(JSON.stringify([{ id: 'row-1', company: 'Acme Labs' }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue('Acme Labs')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Type for Company'), { target: { value: 'integer' } });
+
+    expect(await screen.findByText('column contains values that cannot be converted to integer')).toBeTruthy();
+  });
+
   it('renames an existing Sheet Form on save', async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

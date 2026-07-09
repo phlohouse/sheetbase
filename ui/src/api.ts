@@ -88,6 +88,22 @@ export async function hideSheetField(
   });
 }
 
+export async function tightenSheetFieldType(
+  sheetFormId: string,
+  fieldId: string,
+  targetType: string,
+  fetcher: typeof fetch = fetch,
+): Promise<SheetField> {
+  return request<SheetField>(`${postgrestUrl}/rpc/tighten_sheet_field_type`, fetcher, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ sheet_form_id: sheetFormId, field_id: fieldId, target_type: targetType }),
+  });
+}
+
 export async function listRows<T extends Record<string, unknown>>(
   tableName: string,
   fetcher: typeof fetch = fetch,

@@ -20,10 +20,10 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, renameSheetForm, SheetField, SheetForm, updateRow } from './api';
+import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, renameSheetForm, SheetField, SheetForm, tightenSheetFieldType, updateRow } from './api';
 import { headersFromStencilYaml } from './stencil';
 
-type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
+type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status' | 'integer' | 'numeric' | 'boolean' | 'date' | 'timestamptz';
 
 interface Column {
   key: string;
@@ -73,7 +73,14 @@ const iconByType: Record<FieldType, React.ComponentType<{ size?: number }>> = {
   score: Braces,
   number: Database,
   status: TerminalSquare,
+  integer: Database,
+  numeric: Database,
+  boolean: Braces,
+  date: Table2,
+  timestamptz: TerminalSquare,
 };
+
+const dbFieldTypes = ['text', 'integer', 'numeric', 'boolean', 'date', 'timestamptz'] as const;
 
 function row(id: string, values: string[]): Row {
   return {
@@ -243,6 +250,32 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     } catch (error) {
       setSaveState('error');
       setSaveMessage(error instanceof Error ? error.message : 'Could not hide field');
+    }
+  };
+
+  const tightenColumnType = async (columnIndex: number, targetType: FieldType) => {
+    const column = columns[columnIndex];
+    if (!column || column.type === targetType) return;
+
+    if (!sheetForm || !column.fieldId) {
+      setColumns((currentColumns) => currentColumns.map((currentColumn, index) => (
+        index === columnIndex ? { ...currentColumn, type: targetType } : currentColumn
+      )));
+      return;
+    }
+
+    setSaveState('saving');
+    setSaveMessage('Changing field type');
+    try {
+      const field = await tightenSheetFieldType(sheetForm.id, column.fieldId, targetType);
+      setColumns((currentColumns) => currentColumns.map((currentColumn, index) => (
+        index === columnIndex ? { ...currentColumn, type: field.type as FieldType } : currentColumn
+      )));
+      setSaveState('saved');
+      setSaveMessage(`Changed ${column.label || 'field'} to ${field.type}`);
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not change field type');
     }
   };
 
@@ -529,7 +562,20 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                     placeholder={`Field ${columnIndex + 1}`}
                     value={column.label}
                   />
-                  <em>{column.type}</em>
+                  {column.fieldId ? (
+                    <select
+                      aria-label={`Type for ${column.label || `Field ${columnIndex + 1}`}`}
+                      className="column-type-select"
+                      onChange={(event) => void tightenColumnType(columnIndex, event.target.value as FieldType)}
+                      value={dbFieldTypes.includes(column.type as typeof dbFieldTypes[number]) ? column.type : 'text'}
+                    >
+                      {dbFieldTypes.map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <em>{column.type}</em>
+                  )}
                   <button
                     aria-label={`Hide ${column.label || `Field ${columnIndex + 1}`}`}
                     className="header-action"
@@ -608,7 +654,7 @@ function columnsFromFields(fields: SheetField[]): Column[] {
     key: field.column_name,
     fieldId: field.id,
     label: field.name,
-    type: 'text',
+    type: field.type as FieldType,
     width: Math.max(160, Math.min(280, field.name.length * 12 + 96)),
   }));
 }
