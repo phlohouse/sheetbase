@@ -3,7 +3,6 @@ package main
 import (
 	"embed"
 	"errors"
-	"flag"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -72,36 +71,53 @@ func run(args []string) error {
 }
 
 func serve(args []string) error {
-	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	flags.SetOutput(os.Stderr)
-	addr := flags.String("addr", ":8080", "HTTP listen address")
-	postgrestURL := flags.String("postgrest-url", envOrDefault("SHEETBASE_POSTGREST_URL", "http://127.0.0.1:3000"), "PostgREST URL for /api proxy")
-	dbURL := flags.String("db-url", envOrDefault("SHEETBASE_DB_URL", "postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable"), "PostgreSQL URL for auth; empty disables auth")
-	jwtSecret := flags.String("jwt-secret", envOrDefault("SHEETBASE_JWT_SECRET", defaultJWTSecret), "JWT secret shared with PostgREST")
-	if err := flags.Parse(args); err != nil {
+	cfg, err := parseServeConfig(args)
+	if err != nil {
 		return err
 	}
 
 	var auth *authService
-	if *dbURL != "" {
-		var err error
-		auth, err = newAuthService(*dbURL, *jwtSecret)
+	if cfg.dbURL != "" {
+		auth, err = newAuthService(cfg.dbURL, cfg.jwtSecret)
 		if err != nil {
 			return err
 		}
 	}
 
-	handler, err := newUIHandler(*postgrestURL, auth)
+	handler, err := newUIHandler(cfg.postgrestURL, auth)
 	if err != nil {
 		return err
 	}
 
-	slog.Info("serving Sheetbase", "addr", *addr)
-	err = http.ListenAndServe(*addr, handler)
+	slog.Info("serving Sheetbase", "addr", cfg.appAddr)
+	err = http.ListenAndServe(cfg.appAddr, handler)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
+}
+
+func parseServeConfig(args []string) (appConfig, error) {
+	cfg, err := parseAppConfig("serve", args)
+	if err != nil {
+		return appConfig{}, err
+	}
+	if cfg.postgrestURL == "" {
+		cfg.postgrestURL = "http://127.0.0.1:" + cfg.postgrestPort
+	}
+	if cfg.dbURL == "" && !hasFlag(args, "db-url") {
+		cfg.dbURL = "postgres://postgres:postgres@127.0.0.1:" + cfg.postgresPort + "/postgres?sslmode=disable"
+	}
+	return cfg, nil
+}
+
+func hasFlag(args []string, name string) bool {
+	for _, arg := range args {
+		if arg == "-"+name || arg == "--"+name || strings.HasPrefix(arg, "-"+name+"=") || strings.HasPrefix(arg, "--"+name+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func printUsage() {
@@ -109,7 +125,7 @@ func printUsage() {
 
 Usage:
   sheetbase init [--home DIR]
-  sheetbase serve [-addr :8080] [-postgrest-url http://127.0.0.1:3000] [-db-url postgres://...]
+  sheetbase serve [--home DIR] [-addr :8080] [-postgrest-url http://127.0.0.1:3000] [-db-url postgres://...]
   sheetbase start [--home DIR]
   sheetbase stop [--home DIR]
   sheetbase restart [--home DIR]

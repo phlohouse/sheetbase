@@ -24,6 +24,8 @@ type appConfig struct {
 	postgrestPort string
 	appAddr       string
 	jwtSecret     string
+	postgrestURL  string
+	dbURL         string
 	backupOut     string
 	restoreIn     string
 }
@@ -140,6 +142,8 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	flags.StringVar(&cfg.postgresPort, "postgres-port", envOrDefault("SHEETBASE_POSTGRES_PORT", "55432"), "managed PostgreSQL port")
 	flags.StringVar(&cfg.postgrestPort, "postgrest-port", envOrDefault("SHEETBASE_POSTGREST_PORT", "3000"), "managed PostgREST port")
 	flags.StringVar(&cfg.jwtSecret, "jwt-secret", envOrDefault("SHEETBASE_JWT_SECRET", defaultJWTSecret), "PostgREST JWT secret")
+	flags.StringVar(&cfg.postgrestURL, "postgrest-url", envOrDefault("SHEETBASE_POSTGREST_URL", ""), "PostgREST URL for /api proxy")
+	flags.StringVar(&cfg.dbURL, "db-url", envOrDefault("SHEETBASE_DB_URL", ""), "PostgreSQL URL for auth; empty disables auth")
 	flags.StringVar(&cfg.backupOut, "out", "", "backup file path")
 	flags.StringVar(&cfg.restoreIn, "in", "", "backup file path")
 	if err := flags.Parse(args); err != nil {

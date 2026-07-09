@@ -136,6 +136,48 @@ func TestUsageMentionsMigrate(t *testing.T) {
 	}
 }
 
+func TestParseServeConfigReadsManagedHomeConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(home+"/config", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(home+"/config/sheetbase.env", []byte("SHEETBASE_ADDR=:9090\nSHEETBASE_POSTGRES_PORT=55444\nSHEETBASE_POSTGREST_PORT=3004\nSHEETBASE_JWT_SECRET=test-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := parseServeConfig([]string{"--home", home})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.appAddr != ":9090" {
+		t.Fatalf("appAddr = %q", cfg.appAddr)
+	}
+	if cfg.postgrestURL != "http://127.0.0.1:3004" {
+		t.Fatalf("postgrestURL = %q", cfg.postgrestURL)
+	}
+	if cfg.dbURL != "postgres://postgres:postgres@127.0.0.1:55444/postgres?sslmode=disable" {
+		t.Fatalf("dbURL = %q", cfg.dbURL)
+	}
+	if cfg.jwtSecret != "test-secret" {
+		t.Fatalf("jwtSecret = %q", cfg.jwtSecret)
+	}
+}
+
+func TestParseServeConfigKeepsExplicitURLs(t *testing.T) {
+	cfg, err := parseServeConfig([]string{"-postgrest-url", "http://example.test:3000", "-db-url="})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.postgrestURL != "http://example.test:3000" {
+		t.Fatalf("postgrestURL = %q", cfg.postgrestURL)
+	}
+	if cfg.dbURL != "" {
+		t.Fatalf("dbURL = %q, want auth disabled", cfg.dbURL)
+	}
+}
+
 type fakeUserStore struct {
 	user userRecord
 }

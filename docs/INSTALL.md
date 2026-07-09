@@ -32,7 +32,7 @@ sudo chown "$USER" /var/lib/sheetbase
 sheetbase doctor --home /var/lib/sheetbase
 sheetbase init --home /var/lib/sheetbase
 sheetbase start --home /var/lib/sheetbase
-sheetbase serve -addr :8080
+sheetbase serve --home /var/lib/sheetbase -addr :8080
 ```
 
 Open `http://SERVER:8080`, create the first admin user, then create a Sheet Form.
