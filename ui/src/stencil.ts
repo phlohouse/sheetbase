@@ -2,6 +2,8 @@ import { load } from 'js-yaml';
 
 interface StencilField {
   columns?: Record<string, string>;
+  range?: string;
+  type?: string;
 }
 
 interface StencilVersion {
@@ -37,7 +39,13 @@ export function headersFromStencilYaml(yaml: string, preferredVersion?: string):
 
   const fields = Object.entries(version?.fields ?? {});
   const headers = fields.flatMap(([fieldName, field]) => {
+    if (field?.type === 'computed') {
+      throw new Error(`Unsupported Stencil field ${fieldName}: computed fields cannot become Sheetbase headers`);
+    }
     const columnLabels = Object.values(field?.columns ?? {}).filter(isNonEmptyString);
+    if (field?.range && columnLabels.length === 0) {
+      throw new Error(`Unsupported Stencil field ${fieldName}: ranges need named columns`);
+    }
     return columnLabels.length > 0 ? columnLabels : [humanizeFieldName(fieldName)];
   });
 

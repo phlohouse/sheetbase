@@ -42,4 +42,26 @@ versions:
 
     expect(result.headers).toEqual(['Customer Name', 'Total Amount']);
   });
+
+  it('rejects computed fields', () => {
+    expect(() => headersFromStencilYaml(`
+name: computed
+versions:
+  "v1.0":
+    fields:
+      total:
+        type: computed
+`)).toThrow('Unsupported Stencil field total');
+  });
+
+  it('rejects unnamed ranges', () => {
+    expect(() => headersFromStencilYaml(`
+name: range
+versions:
+  "v1.0":
+    fields:
+      line_items:
+        range: A10:D
+`)).toThrow('ranges need named columns');
+  });
 });
