@@ -28,6 +28,7 @@ type appConfig struct {
 	appAddr       string
 	jwtSecret     string
 	backupOut     string
+	restoreIn     string
 }
 
 type appPaths struct {
@@ -130,6 +131,7 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	flags.StringVar(&cfg.postgrestPort, "postgrest-port", envOrDefault("SHEETBASE_POSTGREST_PORT", "3000"), "managed PostgREST port")
 	flags.StringVar(&cfg.jwtSecret, "jwt-secret", envOrDefault("SHEETBASE_JWT_SECRET", defaultJWTSecret), "PostgREST JWT secret")
 	flags.StringVar(&cfg.backupOut, "out", "", "backup file path")
+	flags.StringVar(&cfg.restoreIn, "in", "", "backup file path")
 	if err := flags.Parse(args); err != nil {
 		return appConfig{}, err
 	}

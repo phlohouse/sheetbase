@@ -55,6 +55,8 @@ func run(args []string) error {
 		return systemdApp(args[1:])
 	case "backup":
 		return backupApp(args[1:])
+	case "restore":
+		return restoreApp(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -107,6 +109,7 @@ Usage:
   sheetbase restart [--home DIR]
   sheetbase status [--home DIR]
   sheetbase backup [--home DIR] [--out FILE]
+  sheetbase restore [--home DIR] --in FILE
   sheetbase systemd [--home DIR] [--bin /usr/local/bin/sheetbase]
 
 Commands:
@@ -116,6 +119,7 @@ Commands:
   stop    Stop managed PostgreSQL and PostgREST processes
   status  Show managed process status
   backup  Write a PostgreSQL custom-format dump
+  restore Restore a PostgreSQL custom-format dump
   systemd Print a systemd service unit
   help    Show this help`)
 }
