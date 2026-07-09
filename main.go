@@ -16,6 +16,9 @@ import (
 //go:embed ui/dist/*
 var uiDist embed.FS
 
+//go:embed db/migrations/*.sql
+var migrationFiles embed.FS
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -29,8 +32,21 @@ func run(args []string) error {
 	}
 
 	switch args[0] {
+	case "init":
+		return initApp(args[1:])
 	case "serve":
 		return serve(args[1:])
+	case "start":
+		return startApp(args[1:])
+	case "stop":
+		return stopApp(args[1:])
+	case "restart":
+		if err := stopApp(args[1:]); err != nil {
+			return err
+		}
+		return startApp(args[1:])
+	case "status":
+		return statusApp(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -64,10 +80,19 @@ func printUsage() {
 	fmt.Println(`Sheetbase
 
 Usage:
+  sheetbase init [--home DIR]
   sheetbase serve [-addr :8080]
+  sheetbase start [--home DIR]
+  sheetbase stop [--home DIR]
+  sheetbase restart [--home DIR]
+  sheetbase status [--home DIR]
 
 Commands:
+  init    Create the Sheetbase home directory and config
   serve   Serve the embedded UI
+  start   Start managed PostgreSQL and PostgREST processes
+  stop    Stop managed PostgreSQL and PostgREST processes
+  status  Show managed process status
   help    Show this help`)
 }
 
