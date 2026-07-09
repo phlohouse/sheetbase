@@ -139,23 +139,29 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   }, []);
 
   const loadForm = async (form: SheetForm, isCancelled: () => boolean = () => false) => {
-    const fields = await listSheetFields(form.id);
-    const visibleFields = fields.filter((field) => !field.hidden);
-    const loadedColumns = columnsFromFields(visibleFields);
-    const loadedRows = rowsFromRecords(
-      await listRows<Record<string, string | null>>(form.generated_table_name),
-      loadedColumns,
-      visibleFields,
-    );
+    try {
+      const fields = await listSheetFields(form.id);
+      const visibleFields = fields.filter((field) => !field.hidden);
+      const loadedColumns = columnsFromFields(visibleFields);
+      const loadedRows = rowsFromRecords(
+        await listRows<Record<string, string | null>>(form.generated_table_name),
+        loadedColumns,
+        visibleFields,
+      );
 
-    if (isCancelled()) return;
-    const nextColumns = loadedColumns.length > 0 ? loadedColumns : [newColumn(0)];
-    setSheetForm(form);
-    setFormName(form.name);
-    setColumns(nextColumns);
-    setRows(ensureBlankRow(loadedRows, nextColumns));
-    setSaveState('saved');
-    setSaveMessage('Loaded from database');
+      if (isCancelled()) return;
+      const nextColumns = loadedColumns.length > 0 ? loadedColumns : [newColumn(0)];
+      setSheetForm(form);
+      setFormName(form.name);
+      setColumns(nextColumns);
+      setRows(ensureBlankRow(loadedRows, nextColumns));
+      setSaveState('saved');
+      setSaveMessage('Loaded from database');
+    } catch (error) {
+      if (isCancelled()) return;
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Load failed');
+    }
   };
 
   const templateColumns = useMemo(
