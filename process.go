@@ -126,6 +126,7 @@ func statusApp(args []string) error {
 	fmt.Printf("app: %s\n", statusText(httpHealthy(cfg.appAddr)))
 	fmt.Printf("postgres: %s\n", postgres.Line())
 	fmt.Printf("postgrest: %s\n", postgrest.Line())
+	fmt.Printf("logs: %s\n", paths.logs)
 	return nil
 }
 
