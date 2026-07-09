@@ -28,6 +28,19 @@ describe('App', () => {
     expect(screen.getByLabelText('Header 7')).toBeTruthy();
   });
 
+  it('moves across cells with Tab and Shift+Tab', async () => {
+    render(<App />);
+
+    const company = screen.getAllByLabelText('Company value')[0];
+    const domain = screen.getAllByLabelText('Domain value')[0];
+    company.focus();
+    fireEvent.keyDown(company, { key: 'Tab' });
+    await waitFor(() => expect(document.activeElement).toBe(domain));
+
+    fireEvent.keyDown(domain, { key: 'Tab', shiftKey: true });
+    await waitFor(() => expect(document.activeElement).toBe(company));
+  });
+
   it('saves headers and rows through PostgREST', async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

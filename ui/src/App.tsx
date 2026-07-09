@@ -415,10 +415,11 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: 0 }));
   };
 
-  const moveCell = (from: ActiveCell, key: string) => {
+  const moveCell = (from: ActiveCell, key: string, shiftKey = false) => {
     let next: ActiveCell = { ...from };
     if (key === 'ArrowLeft') next.columnIndex = Math.max(0, from.columnIndex - 1);
-    if (key === 'ArrowRight' || key === 'Tab') next.columnIndex = Math.min(columns.length - 1, from.columnIndex + 1);
+    if (key === 'ArrowRight' || (key === 'Tab' && !shiftKey)) next.columnIndex = Math.min(columns.length - 1, from.columnIndex + 1);
+    if (key === 'Tab' && shiftKey) next.columnIndex = Math.max(0, from.columnIndex - 1);
     if (key === 'ArrowUp') {
       if (from.kind === 'body' && from.rowIndex === 0) next = { kind: 'header', rowIndex: 0, columnIndex: from.columnIndex };
       else if (from.kind === 'body') next.rowIndex = Math.max(0, from.rowIndex - 1);
@@ -434,7 +435,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>, cell: ActiveCell) => {
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Tab'].includes(event.key)) {
       event.preventDefault();
-      moveCell(cell, event.key);
+      moveCell(cell, event.key, event.shiftKey);
     }
     if (event.key === 'Escape') {
       event.currentTarget.blur();
