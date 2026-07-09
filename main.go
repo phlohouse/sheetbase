@@ -162,7 +162,7 @@ Commands:
   stop    Stop managed PostgreSQL and PostgREST processes
   migrate Apply embedded database migrations
   upgrade Apply embedded database migrations
-  doctor  Check required PostgreSQL and PostgREST commands
+  doctor  Check required Docker access
   status  Show managed process status
   backup  Write a PostgreSQL custom-format dump
   export  Write app metadata and a PostgreSQL dump to a tar.gz archive
