@@ -26,7 +26,10 @@ go run . init --home "$home" --postgres-port "$postgres_port" --postgrest-port "
 go run . start --home "$home" --postgres-port "$postgres_port" --postgrest-port "$postgrest_port" >/dev/null
 
 status="$(go run . status --home "$home" --postgres-port "$postgres_port" --postgrest-port "$postgrest_port")"
-if [[ "$status" != *"postgres: running"* || "$status" != *"postgrest: running"* ]]; then
+if [[ "$status" != *"postgres: running image=postgres:16-alpine"* ||
+      "$status" != *"postgrest: running image=postgrest/postgrest:v12.2.8"* ||
+      "$status" != *"$postgres_port"* ||
+      "$status" != *"$postgrest_port"* ]]; then
   echo "$status" >&2
   exit 1
 fi

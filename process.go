@@ -117,10 +117,12 @@ func statusApp(args []string) error {
 		return err
 	}
 	paths := newAppPaths(cfg.home)
+	postgres := containerStatus(containerName("postgres", paths))
+	postgrest := containerStatus(containerName("postgrest", paths))
 	fmt.Printf("home: %s\n", paths.home)
 	fmt.Printf("app: %s\n", statusText(httpHealthy(cfg.appAddr)))
-	fmt.Printf("postgres: %s\n", statusText(containerRunning(containerName("postgres", paths))))
-	fmt.Printf("postgrest: %s\n", statusText(containerRunning(containerName("postgrest", paths))))
+	fmt.Printf("postgres: %s\n", postgres.Line())
+	fmt.Printf("postgrest: %s\n", postgrest.Line())
 	return nil
 }
 
@@ -369,9 +371,53 @@ func dockerRm(name string) error {
 }
 
 func containerRunning(name string) bool {
-	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", name)
+	return containerStatus(name).Running
+}
+
+type dockerContainerStatus struct {
+	Running bool
+	Image   string
+	ID      string
+	Ports   string
+}
+
+func (s dockerContainerStatus) Line() string {
+	if !s.Running {
+		return "stopped"
+	}
+	parts := []string{"running"}
+	if s.Image != "" {
+		parts = append(parts, "image="+s.Image)
+	}
+	if s.ID != "" {
+		parts = append(parts, "id="+s.ID)
+	}
+	if s.Ports != "" {
+		parts = append(parts, "ports="+s.Ports)
+	}
+	return strings.Join(parts, " ")
+}
+
+func containerStatus(name string) dockerContainerStatus {
+	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Running}}\t{{.Config.Image}}\t{{.Id}}\t{{range $p, $bindings := .NetworkSettings.Ports}}{{$p}}->{{range $bindings}}{{.HostIp}}:{{.HostPort}}{{end}} {{end}}", name)
 	output, err := cmd.Output()
-	return err == nil && strings.TrimSpace(string(output)) == "true"
+	if err != nil {
+		return dockerContainerStatus{}
+	}
+	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+	if len(parts) < 4 || parts[0] != "true" {
+		return dockerContainerStatus{}
+	}
+	id := parts[2]
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return dockerContainerStatus{
+		Running: true,
+		Image:   parts[1],
+		ID:      id,
+		Ports:   strings.TrimSpace(parts[3]),
+	}
 }
 
 func containerName(kind string, paths appPaths) string {

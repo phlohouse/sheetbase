@@ -14,6 +14,9 @@ func doctorApp(args []string) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required commands: %s", strings.Join(missing, ", "))
 	}
+	if err := runCommand("", "docker", "info"); err != nil {
+		return fmt.Errorf("docker daemon is not available: %w", err)
+	}
 	fmt.Println("all required commands found")
 	return nil
 }

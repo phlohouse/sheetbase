@@ -115,3 +115,20 @@ func TestParseAppConfigReadsFileButKeepsFlagPrecedence(t *testing.T) {
 		t.Fatalf("postgresPort = %q, want file value", cfg.postgresPort)
 	}
 }
+
+func TestDockerContainerStatusLine(t *testing.T) {
+	stopped := dockerContainerStatus{}
+	if stopped.Line() != "stopped" {
+		t.Fatalf("stopped line = %q", stopped.Line())
+	}
+
+	running := dockerContainerStatus{
+		Running: true,
+		Image:   "postgres:16-alpine",
+		ID:      "123456789abc",
+		Ports:   "5432/tcp->0.0.0.0:55432",
+	}
+	if got := running.Line(); got != "running image=postgres:16-alpine id=123456789abc ports=5432/tcp->0.0.0.0:55432" {
+		t.Fatalf("running line = %q", got)
+	}
+}
