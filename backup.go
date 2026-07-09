@@ -11,6 +11,9 @@ func backupApp(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireDockerDaemon(); err != nil {
+		return err
+	}
 	paths := newAppPaths(cfg.home)
 
 	if err := ensureAppHome(paths); err != nil {

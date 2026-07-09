@@ -15,6 +15,9 @@ func exportApp(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireDockerDaemon(); err != nil {
+		return err
+	}
 	paths := newAppPaths(cfg.home)
 	target := cfg.backupOut
 	if target == "" {
