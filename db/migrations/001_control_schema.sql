@@ -458,6 +458,38 @@ begin
 end;
 $$;
 
+create or replace function update_sheet_view_widths(sheet_form_id uuid, widths jsonb)
+returns sheet_views
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  view_row sheet_views;
+begin
+  if widths is null or jsonb_typeof(widths) != 'object' then
+    raise exception 'column widths must be a JSON object';
+  end if;
+  if not can_access_sheet_form(sheet_form_id, 'write') then
+    raise exception 'permission denied for sheet form %', sheet_form_id;
+  end if;
+
+  update sheet_views
+  set column_widths = widths
+  where sheet_views.sheet_form_id = update_sheet_view_widths.sheet_form_id
+    and name = 'Default'
+  returning * into view_row;
+
+  if not found then
+    insert into sheet_views (sheet_form_id, name, column_widths)
+    values (sheet_form_id, 'Default', widths)
+    returning * into view_row;
+  end if;
+
+  return view_row;
+end;
+$$;
+
 alter table sheet_forms enable row level security;
 alter table sheet_fields enable row level security;
 alter table sheet_views enable row level security;
@@ -527,6 +559,7 @@ grant execute on function add_sheet_field(uuid, text) to sheetbase_api;
 grant execute on function rename_sheet_form(uuid, text) to sheetbase_api;
 grant execute on function hide_sheet_field(uuid, uuid) to sheetbase_api;
 grant execute on function tighten_sheet_field_type(uuid, uuid, text) to sheetbase_api;
+grant execute on function update_sheet_view_widths(uuid, jsonb) to sheetbase_api;
 grant execute on function current_sheetbase_user_id() to sheetbase_api;
 grant execute on function can_access_sheet_form(uuid, text) to sheetbase_api;
 grant execute on function can_access_sheet_table(text, text) to sheetbase_api;

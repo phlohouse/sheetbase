@@ -134,6 +134,18 @@ added_field="$(curl --fail --silent \
 rows_column="$(printf '%s' "$added_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["column_name"])')"
 rows_field_id="$(printf '%s' "$added_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
+saved_view="$(curl --fail --silent \
+  --cookie "$cookie_file" \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: return=representation' \
+  --data "{\"sheet_form_id\":\"$form_id\",\"widths\":{\"company\":260,\"$rows_column\":180}}" \
+  "http://127.0.0.1:18080/api/rpc/update_sheet_view_widths")"
+company_width="$(printf '%s' "$saved_view" | python3 -c 'import json,sys; print(json.load(sys.stdin)["column_widths"]["company"])')"
+if [[ "$company_width" != "260" ]]; then
+  echo "View widths did not persist: $saved_view" >&2
+  exit 1
+fi
+
 curl --fail --silent \
   --cookie "$cookie_file" \
   --request PATCH \

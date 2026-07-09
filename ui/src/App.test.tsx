@@ -229,6 +229,61 @@ describe('App', () => {
     expect(screen.getByText('Company:text, Rows:integer')).toBeTruthy();
   });
 
+  it('loads and saves column widths through the default Sheet View', async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ input: url, init });
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([{
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_companies',
+        }]), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_views')) {
+        return new Response(JSON.stringify([{
+          id: 'view-1',
+          sheet_form_id: 'form-1',
+          name: 'Default',
+          column_widths: { company: 300 },
+        }]), { status: 200 });
+      }
+      if (url.includes('/rpc/update_sheet_view_widths')) {
+        return new Response(JSON.stringify({
+          id: 'view-1',
+          sheet_form_id: 'form-1',
+          name: 'Default',
+          column_widths: { company: 324 },
+        }), { status: 200 });
+      }
+      if (url.includes('/sheet_companies')) {
+        return new Response(JSON.stringify([{ id: 'row-1', company: 'Acme Labs' }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    const { container } = render(<App />);
+
+    expect(await screen.findByDisplayValue('Acme Labs')).toBeTruthy();
+    expect(container.querySelector<HTMLElement>('.data-grid')?.style.gridTemplateColumns).toContain('300px');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Widen Company' }));
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/rpc/update_sheet_view_widths'))).toBe(true);
+    });
+    const widthCall = calls.find((call) => call.input.includes('/rpc/update_sheet_view_widths'));
+    expect(widthCall?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', widths: { company: 324 } }));
+    expect(await screen.findByText('Column widths saved')).toBeTruthy();
+  });
+
   it('switches between Sheet Forms from the sidebar', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);

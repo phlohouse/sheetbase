@@ -145,6 +145,7 @@ declare
   field_row sheet_fields;
   hidden_row sheet_fields;
   column_type text;
+  view_widths jsonb;
 begin
   if field_column != 'headcount' then
     raise exception 'unexpected added field column: %', field_column;
@@ -182,6 +183,14 @@ begin
 
   if hidden_row.hidden is not true then
     raise exception 'field was not hidden';
+  end if;
+
+  select column_widths
+  from update_sheet_view_widths(form_id, jsonb_build_object(field_column, 240))
+  into view_widths;
+
+  if view_widths ->> field_column != '240' then
+    raise exception 'view widths were not saved: %', view_widths;
   end if;
 end;
 $$;

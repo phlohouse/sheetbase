@@ -14,6 +14,13 @@ export interface SheetField {
   hidden: boolean;
 }
 
+export interface SheetView {
+  id: string;
+  sheet_form_id: string;
+  name: string;
+  column_widths: Record<string, number>;
+}
+
 const postgrestUrl = import.meta.env.VITE_POSTGREST_URL ?? '/api';
 
 export async function listSheetForms(fetcher: typeof fetch = fetch): Promise<SheetForm[]> {
@@ -24,6 +31,14 @@ export async function listSheetFields(sheetFormId: string, fetcher: typeof fetch
   const filter = encodeURIComponent(`eq.${sheetFormId}`);
   return request<SheetField[]>(
     `${postgrestUrl}/sheet_fields?sheet_form_id=${filter}&select=id,name,column_name,position,type,hidden&order=position.asc`,
+    fetcher,
+  );
+}
+
+export async function listSheetViews(sheetFormId: string, fetcher: typeof fetch = fetch): Promise<SheetView[]> {
+  const filter = encodeURIComponent(`eq.${sheetFormId}`);
+  return request<SheetView[]>(
+    `${postgrestUrl}/sheet_views?sheet_form_id=${filter}&select=id,sheet_form_id,name,column_widths&order=created_at.asc`,
     fetcher,
   );
 }
@@ -101,6 +116,21 @@ export async function tightenSheetFieldType(
       Prefer: 'return=representation',
     },
     body: JSON.stringify({ sheet_form_id: sheetFormId, field_id: fieldId, target_type: targetType }),
+  });
+}
+
+export async function updateSheetViewWidths(
+  sheetFormId: string,
+  widths: Record<string, number>,
+  fetcher: typeof fetch = fetch,
+): Promise<SheetView> {
+  return request<SheetView>(`${postgrestUrl}/rpc/update_sheet_view_widths`, fetcher, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ sheet_form_id: sheetFormId, widths }),
   });
 }
 

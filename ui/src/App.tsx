@@ -20,7 +20,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, renameSheetForm, SheetField, SheetForm, tightenSheetFieldType, updateRow } from './api';
+import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetForm, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status' | 'integer' | 'numeric' | 'boolean' | 'date' | 'timestamptz';
@@ -164,8 +164,9 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const loadForm = async (form: SheetForm, isCancelled: () => boolean = () => false) => {
     try {
       const fields = await listSheetFields(form.id);
+      const views = await listSheetViews(form.id);
       const visibleFields = fields.filter((field) => !field.hidden);
-      const loadedColumns = columnsFromFields(visibleFields);
+      const loadedColumns = columnsFromFields(visibleFields, views[0]?.column_widths ?? {});
       const loadedRows = rowsFromRecords(
         await listRows<Record<string, string | null>>(form.generated_table_name),
         loadedColumns,
@@ -232,6 +233,26 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: currentColumns.length }));
       return [...currentColumns, column];
     });
+  };
+
+  const resizeColumn = async (columnIndex: number, delta: number) => {
+    const column = columns[columnIndex];
+    if (!column) return;
+    const width = Math.max(120, Math.min(420, column.width + delta));
+    const nextColumns = columns.map((currentColumn, index) => (
+      index === columnIndex ? { ...currentColumn, width } : currentColumn
+    ));
+    setColumns(nextColumns);
+    if (!sheetForm) return;
+
+    try {
+      await updateSheetViewWidths(sheetForm.id, Object.fromEntries(nextColumns.map((currentColumn) => [currentColumn.key, currentColumn.width])));
+      setSaveState('saved');
+      setSaveMessage('Column widths saved');
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not save column widths');
+    }
   };
 
   const hideColumn = async (columnIndex: number) => {
@@ -604,6 +625,24 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                     <em>{column.type}</em>
                   )}
                   <button
+                    aria-label={`Narrow ${column.label || `Field ${columnIndex + 1}`}`}
+                    className="header-action"
+                    onClick={() => void resizeColumn(columnIndex, -24)}
+                    title="Narrow field"
+                    type="button"
+                  >
+                    -
+                  </button>
+                  <button
+                    aria-label={`Widen ${column.label || `Field ${columnIndex + 1}`}`}
+                    className="header-action"
+                    onClick={() => void resizeColumn(columnIndex, 24)}
+                    title="Widen field"
+                    type="button"
+                  >
+                    +
+                  </button>
+                  <button
                     aria-label={`Hide ${column.label || `Field ${columnIndex + 1}`}`}
                     className="header-action"
                     onClick={() => void hideColumn(columnIndex)}
@@ -676,13 +715,13 @@ async function ensureFields(sheetFormId: string, headers: string[], fields: Shee
   return [...fields, ...added].sort((left, right) => left.position - right.position);
 }
 
-function columnsFromFields(fields: SheetField[]): Column[] {
+function columnsFromFields(fields: SheetField[], widths: Record<string, number> = {}): Column[] {
   return fields.map((field) => ({
     key: field.column_name,
     fieldId: field.id,
     label: field.name,
     type: field.type as FieldType,
-    width: Math.max(160, Math.min(280, field.name.length * 12 + 96)),
+    width: widths[field.column_name] ?? Math.max(160, Math.min(280, field.name.length * 12 + 96)),
   }));
 }
 
