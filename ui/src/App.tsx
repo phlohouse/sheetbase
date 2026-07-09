@@ -4,10 +4,8 @@ import {
   Columns3,
   Database,
   Download,
-  Filter,
   Import,
   EyeOff,
-  MoreHorizontal,
   Plus,
   Save,
   Settings,
@@ -488,6 +486,11 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             API endpoint
           </button>
         </div>
+        {onSignOut ? (
+          <button className="nav-action sign-out-action" onClick={onSignOut} type="button">
+            Sign out
+          </button>
+        ) : null}
       </aside>
 
       <main className="workspace">
@@ -500,24 +503,12 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               value={formName}
             />
           </div>
-          <div className="topbar-actions">
-            <div className="avatars" aria-label="Collaborators">
-              <span>G</span>
-              <span>A</span>
-              <span>J</span>
-              <span>+1</span>
-            </div>
-            <button className="plain-button" onClick={onSignOut} type="button">Sign out</button>
-            <button className="ghost-icon" type="button" aria-label="More options">
-              <MoreHorizontal size={18} />
-            </button>
-          </div>
         </header>
 
         <section className="view-header" aria-label="Current view">
           <button className="view-pill" type="button">
             <Table2 size={16} />
-            Top companies
+            Sheet view
             <ChevronDown size={14} />
           </button>
           <div className="view-actions">
@@ -553,13 +544,6 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         </section>
 
         <section className="filterbar" aria-label="Filters and sorting">
-          <button className="filter-chip" type="button">
-            <Filter size={15} />
-            Sorted by <strong>Updated recently</strong>
-          </button>
-          <button className="filter-chip" type="button">
-            Advanced filter <span>3</span>
-          </button>
           <div className={`save-status ${saveState}`} role="status">
             {saveMessage}
           </div>
