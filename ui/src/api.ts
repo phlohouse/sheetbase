@@ -154,7 +154,7 @@ export async function listRows<T extends Record<string, unknown>>(
   tableName: string,
   fetcher: typeof fetch = fetch,
 ): Promise<T[]> {
-  return request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}?select=*`, fetcher);
+  return request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}?select=*&limit=200`, fetcher);
 }
 
 export async function insertRows<T extends Record<string, unknown>>(

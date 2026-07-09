@@ -47,7 +47,7 @@ describe('api client', () => {
     expect(calls[9].input).toContain('/rpc/update_sheet_view_column_order');
     expect(calls[9].init?.method).toBe('POST');
     expect(calls[9].init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', column_order: ['domain', 'company'] }));
-    expect(calls[10].input).toContain('/sheet_abc?select=*');
+    expect(calls[10].input).toContain('/sheet_abc?select=*&limit=200');
     expect(calls[11].input).toContain('/sheet_abc');
     expect(calls[11].init?.method).toBe('POST');
     expect(calls[11].init?.body).toBe(JSON.stringify([{ company: 'Acme' }]));
