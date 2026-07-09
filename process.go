@@ -35,6 +35,7 @@ type appPaths struct {
 	backups         string
 	config          string
 	logs            string
+	appLog          string
 	postgresData    string
 	postgrestConfig string
 	sheetbaseConfig string
@@ -180,6 +181,7 @@ func newAppPaths(home string) appPaths {
 		backups:         filepath.Join(home, "backups"),
 		config:          filepath.Join(home, "config"),
 		logs:            filepath.Join(home, "logs"),
+		appLog:          filepath.Join(home, "logs", "sheetbase.log"),
 		postgresData:    filepath.Join(home, "data", "postgres"),
 		postgrestConfig: filepath.Join(home, "config", "postgrest.conf"),
 		sheetbaseConfig: filepath.Join(home, "config", "sheetbase.env"),

@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -175,6 +177,25 @@ func TestParseServeConfigKeepsExplicitURLs(t *testing.T) {
 	}
 	if cfg.dbURL != "" {
 		t.Fatalf("dbURL = %q, want auth disabled", cfg.dbURL)
+	}
+}
+
+func TestSetupAppLoggingWritesUnderHome(t *testing.T) {
+	paths := newAppPaths(t.TempDir())
+	previous := slog.Default()
+	defer slog.SetDefault(previous)
+
+	if err := setupAppLogging(paths); err != nil {
+		t.Fatal(err)
+	}
+	slog.Info("test log line")
+
+	data, err := os.ReadFile(filepath.Join(paths.logs, "sheetbase.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "test log line") {
+		t.Fatalf("log file missing message: %s", data)
 	}
 }
 

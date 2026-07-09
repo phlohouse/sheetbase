@@ -4,6 +4,7 @@ set -euo pipefail
 network="sheetbase-app-test-$$"
 postgres="sheetbase-postgres-app-test-$$"
 postgrest="sheetbase-postgrest-app-test-$$"
+home="$(mktemp -d)"
 
 cleanup() {
   if [[ -n "${app_pid:-}" ]]; then
@@ -12,6 +13,7 @@ cleanup() {
   fi
   docker rm -f "$postgrest" "$postgres" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
+  rm -rf "$home"
 }
 trap cleanup EXIT
 
@@ -59,6 +61,7 @@ for _ in $(seq 1 80); do
 done
 
 go run . serve \
+  --home "$home" \
   -addr 127.0.0.1:18080 \
   -postgrest-url "http://127.0.0.1:${postgrest_port}" \
   -db-url "postgres://postgres:postgres@127.0.0.1:${db_port}/postgres?sslmode=disable" >/tmp/sheetbase-app-test.log 2>&1 &

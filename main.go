@@ -75,6 +75,9 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := setupAppLogging(newAppPaths(cfg.home)); err != nil {
+		return err
+	}
 
 	var auth *authService
 	if cfg.dbURL != "" {
@@ -109,6 +112,18 @@ func parseServeConfig(args []string) (appConfig, error) {
 		cfg.dbURL = "postgres://postgres:postgres@127.0.0.1:" + cfg.postgresPort + "/postgres?sslmode=disable"
 	}
 	return cfg, nil
+}
+
+func setupAppLogging(paths appPaths) error {
+	if err := os.MkdirAll(paths.logs, 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(paths.appLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(file, nil)))
+	return nil
 }
 
 func hasFlag(args []string, name string) bool {
