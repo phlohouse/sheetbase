@@ -504,6 +504,30 @@ input:focus-visible {
   font-weight: 560;
 }
 
+.header-action {
+  display: grid;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--subtle);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.column-header:hover .header-action,
+.column-header:focus-within .header-action {
+  opacity: 1;
+}
+
+.header-action:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
 .select-cell {
   justify-content: center;
   padding: 0;

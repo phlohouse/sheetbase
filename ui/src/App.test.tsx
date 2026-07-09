@@ -42,8 +42,8 @@ describe('App', () => {
       }
       if (String(input).includes('/sheet_fields')) {
         return new Response(JSON.stringify([
-          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
-          { name: 'Domain', column_name: 'domain', position: 1, type: 'text', hidden: false },
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-2', name: 'Domain', column_name: 'domain', position: 1, type: 'text', hidden: false },
         ]), { status: 200 });
       }
       return new Response(JSON.stringify([]), { status: 200 });
@@ -83,8 +83,8 @@ describe('App', () => {
       }
       if (String(input).includes('/sheet_fields')) {
         return new Response(JSON.stringify([
-          { name: 'Requester', column_name: 'requester', position: 0, type: 'text', hidden: false },
-          { name: 'Issue', column_name: 'issue', position: 1, type: 'text', hidden: false },
+          { id: 'field-1', name: 'Requester', column_name: 'requester', position: 0, type: 'text', hidden: false },
+          { id: 'field-2', name: 'Issue', column_name: 'issue', position: 1, type: 'text', hidden: false },
         ]), { status: 200 });
       }
       return new Response(JSON.stringify([]), { status: 200 });
@@ -124,7 +124,7 @@ describe('App', () => {
       }
       if (url.includes('/sheet_fields')) {
         return new Response(JSON.stringify([
-          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
         ]), { status: 200 });
       }
       if (url.includes('/sheet_abc') && init?.method === 'POST') {
@@ -167,9 +167,9 @@ describe('App', () => {
       }
       if (url.includes('/sheet_fields')) {
         return new Response(JSON.stringify([
-          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
-          { name: 'Domain', column_name: 'domain', position: 1, type: 'text', hidden: false },
-          { name: 'Internal', column_name: 'internal', position: 2, type: 'text', hidden: true },
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-2', name: 'Domain', column_name: 'domain', position: 1, type: 'text', hidden: false },
+          { id: 'field-3', name: 'Internal', column_name: 'internal', position: 2, type: 'text', hidden: true },
         ]), { status: 200 });
       }
       if (url.includes('/sheet_abc')) {
@@ -199,12 +199,12 @@ describe('App', () => {
       }
       if (url.includes('sheet_form_id=eq.form-1')) {
         return new Response(JSON.stringify([
-          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
         ]), { status: 200 });
       }
       if (url.includes('sheet_form_id=eq.form-2')) {
         return new Response(JSON.stringify([
-          { name: 'Requester', column_name: 'requester', position: 0, type: 'text', hidden: false },
+          { id: 'field-2', name: 'Requester', column_name: 'requester', position: 0, type: 'text', hidden: false },
         ]), { status: 200 });
       }
       if (url.includes('/sheet_companies')) {
@@ -223,6 +223,57 @@ describe('App', () => {
 
     expect(await screen.findByDisplayValue('Gareth')).toBeTruthy();
     expect(screen.getByDisplayValue('Requests')).toBeTruthy();
+  });
+
+  it('hides an existing field without deleting the generated table data', async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ input: url, init });
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([{
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_companies',
+        }]), { status: 200 });
+      }
+      if (url.includes('/rpc/hide_sheet_field')) {
+        return new Response(JSON.stringify({
+          id: 'field-2',
+          name: 'Domain',
+          column_name: 'domain',
+          position: 1,
+          type: 'text',
+          hidden: true,
+        }), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-2', name: 'Domain', column_name: 'domain', position: 1, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_companies')) {
+        return new Response(JSON.stringify([{ id: 'row-1', company: 'Acme Labs', domain: 'acme.test' }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue('acme.test')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Domain' }));
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/rpc/hide_sheet_field'))).toBe(true);
+    });
+    const hideCall = calls.find((call) => call.input.includes('/rpc/hide_sheet_field'));
+    expect(hideCall?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', field_id: 'field-2' }));
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue('acme.test')).toBeNull();
+    });
+    expect(screen.getByText('Field hidden')).toBeTruthy();
   });
 
   it('renames an existing Sheet Form on save', async () => {
@@ -245,7 +296,7 @@ describe('App', () => {
       }
       if (url.includes('/sheet_fields')) {
         return new Response(JSON.stringify([
-          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
         ]), { status: 200 });
       }
       if (url.includes('/sheet_companies')) {
@@ -279,7 +330,7 @@ describe('App', () => {
       }
       if (url.includes('/sheet_fields')) {
         return new Response(JSON.stringify([
-          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
         ]), { status: 200 });
       }
       if (url.includes('/sheet_companies')) {
@@ -315,6 +366,7 @@ describe('App', () => {
       if (url.includes('/rpc/add_sheet_field')) {
         return new Response(JSON.stringify({
           name: 'Notes',
+          id: 'field-2',
           column_name: 'notes',
           position: 1,
           type: 'text',
@@ -323,7 +375,7 @@ describe('App', () => {
       }
       if (url.includes('/sheet_fields')) {
         return new Response(JSON.stringify([
-          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
         ]), { status: 200 });
       }
       if (url.includes('/sheet_abc')) {

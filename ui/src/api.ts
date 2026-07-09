@@ -6,6 +6,7 @@ export interface SheetForm {
 }
 
 export interface SheetField {
+  id: string;
   name: string;
   column_name: string;
   position: number;
@@ -22,7 +23,7 @@ export async function listSheetForms(fetcher: typeof fetch = fetch): Promise<She
 export async function listSheetFields(sheetFormId: string, fetcher: typeof fetch = fetch): Promise<SheetField[]> {
   const filter = encodeURIComponent(`eq.${sheetFormId}`);
   return request<SheetField[]>(
-    `${postgrestUrl}/sheet_fields?sheet_form_id=${filter}&select=name,column_name,position,type,hidden&order=position.asc`,
+    `${postgrestUrl}/sheet_fields?sheet_form_id=${filter}&select=id,name,column_name,position,type,hidden&order=position.asc`,
     fetcher,
   );
 }
@@ -69,6 +70,21 @@ export async function renameSheetForm(
       Prefer: 'return=representation',
     },
     body: JSON.stringify({ sheet_form_id: sheetFormId, name }),
+  });
+}
+
+export async function hideSheetField(
+  sheetFormId: string,
+  fieldId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<SheetField> {
+  return request<SheetField>(`${postgrestUrl}/rpc/hide_sheet_field`, fetcher, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ sheet_form_id: sheetFormId, field_id: fieldId }),
   });
 }
 

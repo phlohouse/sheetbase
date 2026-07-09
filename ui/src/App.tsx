@@ -9,6 +9,7 @@ import {
   Folder,
   Home,
   Import,
+  EyeOff,
   MoreHorizontal,
   Plus,
   Save,
@@ -19,13 +20,14 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, renameSheetForm, SheetField, SheetForm, updateRow } from './api';
+import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, renameSheetForm, SheetField, SheetForm, updateRow } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
 
 interface Column {
   key: string;
+  fieldId?: string;
   label: string;
   type: FieldType;
   width: number;
@@ -209,6 +211,39 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: currentColumns.length }));
       return [...currentColumns, column];
     });
+  };
+
+  const hideColumn = async (columnIndex: number) => {
+    const column = columns[columnIndex];
+    if (!column) return;
+
+    const nextColumns = columns.filter((_, index) => index !== columnIndex);
+    const usableColumns = nextColumns.length > 0 ? nextColumns : [newColumn(0)];
+    const removeColumnValue = (currentRow: Row): Row => {
+      const { [column.key]: _hiddenValue, ...values } = currentRow.values;
+      return { ...currentRow, values };
+    };
+
+    if (!sheetForm || !column.fieldId) {
+      setColumns(usableColumns);
+      setRows((currentRows) => currentRows.map(removeColumnValue));
+      setSaveState('idle');
+      setSaveMessage('Local field removed');
+      return;
+    }
+
+    setSaveState('saving');
+    setSaveMessage('Hiding field');
+    try {
+      await hideSheetField(sheetForm.id, column.fieldId);
+      setColumns(usableColumns);
+      setRows((currentRows) => currentRows.map(removeColumnValue));
+      setSaveState('saved');
+      setSaveMessage('Field hidden');
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not hide field');
+    }
   };
 
   const saveToAPI = async () => {
@@ -483,7 +518,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               const Icon = iconByType[column.type];
               const isActive = activeCell.kind === 'header' && activeCell.columnIndex === columnIndex;
               return (
-                <label className={`cell header column-header ${isActive ? 'active-cell' : ''}`} key={column.key}>
+                <div className={`cell header column-header ${isActive ? 'active-cell' : ''}`} key={column.key}>
                   <Icon size={15} />
                   <input
                     aria-label={`Header ${columnIndex + 1}`}
@@ -495,7 +530,16 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                     value={column.label}
                   />
                   <em>{column.type}</em>
-                </label>
+                  <button
+                    aria-label={`Hide ${column.label || `Field ${columnIndex + 1}`}`}
+                    className="header-action"
+                    onClick={() => void hideColumn(columnIndex)}
+                    title="Hide field"
+                    type="button"
+                  >
+                    <EyeOff size={14} />
+                  </button>
+                </div>
               );
             })}
 
@@ -562,6 +606,7 @@ async function ensureFields(sheetFormId: string, headers: string[], fields: Shee
 function columnsFromFields(fields: SheetField[]): Column[] {
   return fields.map((field) => ({
     key: field.column_name,
+    fieldId: field.id,
     label: field.name,
     type: 'text',
     width: Math.max(160, Math.min(280, field.name.length * 12 + 96)),
