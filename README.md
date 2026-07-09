@@ -19,6 +19,7 @@ Useful commands:
 - `make test`: build the UI and run Go tests
 - `make db-test`: run PostgreSQL schema tests in Docker
 - `make api-test`: run a PostgREST integration test in Docker
+- `make app-test`: run a Docker-backed app/auth/proxy integration test
 - `make build`: build `bin/sheetbase`
 - `make linux`: build `bin/sheetbase-linux-amd64`
 - `go run . serve -addr :8080 -postgrest-url http://127.0.0.1:3000`: serve the embedded UI and `/api` proxy
