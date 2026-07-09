@@ -84,16 +84,39 @@ curl --fail --silent \
   --data '{"email":"admin@example.com","password":"long-enough-password"}' \
   "http://127.0.0.1:18080/auth/setup" >/dev/null
 
-curl --fail --silent \
+form_json="$(curl --fail --silent \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
   --header 'Prefer: return=representation' \
   --data '{"name":"Auth Companies","headers":["Company","Domain"]}' \
-  "http://127.0.0.1:18080/api/rpc/create_sheet_form" >/dev/null
+  "http://127.0.0.1:18080/api/rpc/create_sheet_form")"
+
+generated_table="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
+form_id="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
 forms="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/api/sheet_forms?select=name")"
 if [[ "$forms" != *"Auth Companies"* ]]; then
   echo "Authenticated API did not return created form: $forms" >&2
+  exit 1
+fi
+
+metadata="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/api/sheet_fields?sheet_form_id=eq.$form_id&select=name,column_name&order=position.asc")"
+if [[ "$metadata" != *"Company"* || "$metadata" != *"Domain"* ]]; then
+  echo "Authenticated API did not return form fields: $metadata" >&2
+  exit 1
+fi
+
+curl --fail --silent \
+  --cookie "$cookie_file" \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: return=representation' \
+  --data '[{"company":"Acme Labs","domain":"acme.test"},{"company":"Vercel","domain":"vercel.com"}]' \
+  "http://127.0.0.1:18080/api/$generated_table" >/dev/null
+
+filtered="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/api/$generated_table?domain=eq.acme.test&select=company,domain")"
+filtered_company="$(printf '%s' "$filtered" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["company"])')"
+if [[ "$filtered_company" != "Acme Labs" ]]; then
+  echo "Authenticated API did not return inserted row: $filtered" >&2
   exit 1
 fi
 
