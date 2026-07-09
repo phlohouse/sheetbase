@@ -144,6 +144,43 @@ describe('App', () => {
     expect(screen.getByText('Loaded from database')).toBeTruthy();
   });
 
+  it('switches between Sheet Forms from the sidebar', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([
+          { id: 'form-1', slug: 'companies', name: 'Companies', generated_table_name: 'sheet_companies' },
+          { id: 'form-2', slug: 'requests', name: 'Requests', generated_table_name: 'sheet_requests' },
+        ]), { status: 200 });
+      }
+      if (url.includes('sheet_form_id=eq.form-1')) {
+        return new Response(JSON.stringify([
+          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('sheet_form_id=eq.form-2')) {
+        return new Response(JSON.stringify([
+          { name: 'Requester', column_name: 'requester', position: 0, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_companies')) {
+        return new Response(JSON.stringify([{ id: 'row-1', company: 'Acme Labs' }]), { status: 200 });
+      }
+      if (url.includes('/sheet_requests')) {
+        return new Response(JSON.stringify([{ id: 'row-2', requester: 'Gareth' }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue('Acme Labs')).toBeTruthy();
+    fireEvent.click(screen.getByText('Requests'));
+
+    expect(await screen.findByDisplayValue('Gareth')).toBeTruthy();
+    expect(screen.getByDisplayValue('Requests')).toBeTruthy();
+  });
+
   it('adds new fields to an existing Sheet Form before saving rows', async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

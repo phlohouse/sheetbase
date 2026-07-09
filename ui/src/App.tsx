@@ -42,13 +42,6 @@ interface ActiveCell {
   kind: 'header' | 'body';
 }
 
-const forms = [
-  { name: 'Companies', count: 12, active: true },
-  { name: 'Customers', count: 8 },
-  { name: 'Requests', count: 24 },
-  { name: 'Deployments', count: 5 },
-];
-
 const initialColumns: Column[] = [
   { key: 'company', label: 'Company', type: 'text', width: 260 },
   { key: 'domain', label: 'Domain', type: 'url', width: 190 },
@@ -117,6 +110,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [rows, setRows] = useState(initialRows);
   const [activeCell, setActiveCell] = useState<ActiveCell>({ rowIndex: 0, columnIndex: 0, kind: 'body' });
   const [sheetForm, setSheetForm] = useState<SheetForm | null>(null);
+  const [sheetForms, setSheetForms] = useState<SheetForm[]>([]);
   const [formName, setFormName] = useState('Companies');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('Local draft');
@@ -128,26 +122,11 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
 
     async function loadLatestForm() {
       try {
-        const [form] = await listSheetForms();
+        const forms = await listSheetForms();
+        if (!cancelled) setSheetForms(forms);
+        const [form] = forms;
         if (!form || cancelled) return;
-
-        const fields = await listSheetFields(form.id);
-        const visibleFields = fields.filter((field) => !field.hidden);
-        const loadedColumns = columnsFromFields(visibleFields);
-        const loadedRows = rowsFromRecords(
-          await listRows<Record<string, string | null>>(form.generated_table_name),
-          loadedColumns,
-          visibleFields,
-        );
-
-        if (cancelled) return;
-        const nextColumns = loadedColumns.length > 0 ? loadedColumns : [newColumn(0)];
-        setSheetForm(form);
-        setFormName(form.name);
-        setColumns(nextColumns);
-        setRows(ensureBlankRow(loadedRows, nextColumns));
-        setSaveState('saved');
-        setSaveMessage('Loaded from database');
+        await loadForm(form, () => cancelled);
       } catch {
         // Keep the local draft usable when the API is not up yet.
       }
@@ -158,6 +137,26 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       cancelled = true;
     };
   }, []);
+
+  const loadForm = async (form: SheetForm, isCancelled: () => boolean = () => false) => {
+    const fields = await listSheetFields(form.id);
+    const visibleFields = fields.filter((field) => !field.hidden);
+    const loadedColumns = columnsFromFields(visibleFields);
+    const loadedRows = rowsFromRecords(
+      await listRows<Record<string, string | null>>(form.generated_table_name),
+      loadedColumns,
+      visibleFields,
+    );
+
+    if (isCancelled()) return;
+    const nextColumns = loadedColumns.length > 0 ? loadedColumns : [newColumn(0)];
+    setSheetForm(form);
+    setFormName(form.name);
+    setColumns(nextColumns);
+    setRows(ensureBlankRow(loadedRows, nextColumns));
+    setSaveState('saved');
+    setSaveMessage('Loaded from database');
+  };
 
   const templateColumns = useMemo(
     () => `44px ${columns.map((column) => `${column.width}px`).join(' ')}`,
@@ -228,6 +227,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       const form = sheetForm ?? await createSheetForm(name, headers);
       if (!sheetForm) {
         setSheetForm(form);
+        setSheetForms((current) => [form, ...current.filter((existing) => existing.id !== form.id)]);
       }
       const loadedFields = await listSheetFields(form.id);
       const fields = existingForm ? await ensureFields(form.id, headers, loadedFields) : loadedFields;
@@ -356,11 +356,18 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             Sheet Forms
           </button>
           <div className="form-list">
-            {forms.map((form) => (
-              <a className={form.active ? 'active' : ''} href={`#${form.name}`} key={form.name}>
+            {(sheetForms.length > 0 ? sheetForms : [{ id: 'draft', name: formName } as SheetForm]).map((form) => (
+              <a
+                className={sheetForm?.id === form.id || (form.id === 'draft' && !sheetForm) ? 'active' : ''}
+                href={`#${form.name}`}
+                key={form.id}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (form.id !== 'draft') void loadForm(form);
+                }}
+              >
                 <Table2 size={15} />
                 <span>{form.name}</span>
-                <em>{form.count}</em>
               </a>
             ))}
           </div>
