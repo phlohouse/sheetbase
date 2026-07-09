@@ -19,8 +19,8 @@ import {
   Table2,
   TerminalSquare,
 } from 'lucide-react';
-import { KeyboardEvent, useMemo, useRef, useState } from 'react';
-import { createSheetForm, insertRows, listSheetFields, SheetField, SheetForm } from './api';
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, SheetField, SheetForm } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
@@ -122,6 +122,41 @@ export function App() {
   const [saveMessage, setSaveMessage] = useState('Local draft');
   const gridRef = useRef<HTMLDivElement>(null);
   const stencilInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLatestForm() {
+      try {
+        const [form] = await listSheetForms();
+        if (!form || cancelled) return;
+
+        const fields = await listSheetFields(form.id);
+        const visibleFields = fields.filter((field) => !field.hidden);
+        const loadedColumns = columnsFromFields(visibleFields);
+        const loadedRows = rowsFromRecords(
+          await listRows<Record<string, string | null>>(form.generated_table_name),
+          loadedColumns,
+          visibleFields,
+        );
+
+        if (cancelled) return;
+        const nextColumns = loadedColumns.length > 0 ? loadedColumns : [newColumn(0)];
+        setSheetForm(form);
+        setColumns(nextColumns);
+        setRows(ensureBlankRow(loadedRows, nextColumns));
+        setSaveState('saved');
+        setSaveMessage('Loaded from database');
+      } catch {
+        // Keep the local draft usable when the API is not up yet.
+      }
+    }
+
+    void loadLatestForm();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const templateColumns = useMemo(
     () => `44px ${columns.map((column) => `${column.width}px`).join(' ')}`,
@@ -450,6 +485,34 @@ function rowsToPayload(rows: Row[], columns: Column[], fields: SheetField[]) {
       return record;
     })
     .filter((record) => Object.keys(record).length > 0);
+}
+
+function columnsFromFields(fields: SheetField[]): Column[] {
+  return fields.map((field) => ({
+    key: field.column_name,
+    label: field.name,
+    type: 'text',
+    width: Math.max(160, Math.min(280, field.name.length * 12 + 96)),
+  }));
+}
+
+function rowsFromRecords(records: Record<string, string | null>[], columns: Column[], fields: SheetField[]): Row[] {
+  const fieldsByColumn = new Map(fields.map((field) => [field.column_name, field]));
+  return records.map((record, index) => ({
+    id: String(record.id ?? `row-${index + 1}`),
+    values: Object.fromEntries(columns.map((column) => {
+      const field = fieldsByColumn.get(column.key);
+      return [column.key, String((field ? record[field.column_name] : '') ?? '')];
+    })),
+  }));
+}
+
+function ensureBlankRow(rows: Row[], columns: Column[]): Row[] {
+  const last = rows.at(-1);
+  if (!last || Object.values(last.values).some((value) => value.trim() !== '')) {
+    return [...rows, emptyRow(`draft-${rows.length + 1}`, columns)];
+  }
+  return rows;
 }
 
 interface RowCellsProps {

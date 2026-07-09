@@ -6,6 +6,7 @@ describe('App', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('supports the local Sheet Form editing lifecycle', () => {
@@ -53,16 +54,51 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByText(/Saved \d+ rows/)).toBeTruthy();
-    expect(calls[0].input).toContain('/rpc/create_sheet_form');
-    expect(calls[0].init?.body).toBe(JSON.stringify({
+    const createCall = calls.find((call) => call.input.includes('/rpc/create_sheet_form'));
+    const fieldsCall = calls.find((call) => call.input.includes('/sheet_fields?sheet_form_id=eq.form-1'));
+    const insertCall = calls.find((call) => call.input.includes('/sheet_abc') && call.init?.method === 'POST');
+    expect(createCall?.input).toContain('/rpc/create_sheet_form');
+    expect(createCall?.init?.body).toBe(JSON.stringify({
       name: 'Companies',
       headers: ['Company', 'Domain', 'Source records', 'Schema fit', 'Rows', 'API status'],
     }));
-    expect(calls[1].input).toContain('/sheet_fields?sheet_form_id=eq.form-1');
-    expect(calls[2].input).toContain('/sheet_abc');
-    expect(calls[2].init?.method).toBe('POST');
-    expect(calls[2].init?.body).toContain('"company":"Vercel"');
-    expect(calls[2].init?.body).toContain('"domain":"vercel.com"');
+    expect(fieldsCall?.input).toContain('/sheet_fields?sheet_form_id=eq.form-1');
+    expect(insertCall?.init?.body).toContain('"company":"Vercel"');
+    expect(insertCall?.init?.body).toContain('"domain":"vercel.com"');
+  });
+
+  it('loads the latest Sheet Form from PostgREST', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([{
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_abc',
+        }]), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { name: 'Domain', column_name: 'domain', position: 1, type: 'text', hidden: false },
+          { name: 'Internal', column_name: 'internal', position: 2, type: 'text', hidden: true },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_abc')) {
+        return new Response(JSON.stringify([
+          { id: 'row-1', company: 'Acme Labs', domain: 'acme.test', internal: 'secret' },
+        ]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue('Acme Labs')).toBeTruthy();
+    expect(screen.getByDisplayValue('acme.test')).toBeTruthy();
+    expect(screen.queryByDisplayValue('secret')).toBeNull();
+    expect(screen.getByText('Loaded from database')).toBeTruthy();
   });
 
   it('imports header columns from a Stencil config', async () => {
