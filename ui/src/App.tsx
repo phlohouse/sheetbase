@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { KeyboardEvent, useMemo, useRef, useState } from 'react';
 import { createSheetForm, insertRows, listSheetFields, SheetField, SheetForm } from './api';
+import { headersFromStencilYaml } from './stencil';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
 
@@ -103,6 +104,15 @@ function newColumn(index: number): Column {
   };
 }
 
+function columnsFromHeaders(headers: string[]): Column[] {
+  return headers.map((header, index) => ({
+    key: `field_${index + 1}`,
+    label: header,
+    type: 'text',
+    width: Math.max(160, Math.min(280, header.length * 12 + 96)),
+  }));
+}
+
 export function App() {
   const [columns, setColumns] = useState(initialColumns);
   const [rows, setRows] = useState(initialRows);
@@ -111,6 +121,7 @@ export function App() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('Local draft');
   const gridRef = useRef<HTMLDivElement>(null);
+  const stencilInputRef = useRef<HTMLInputElement>(null);
 
   const templateColumns = useMemo(
     () => `44px ${columns.map((column) => `${column.width}px`).join(' ')}`,
@@ -185,6 +196,29 @@ export function App() {
     } catch (error) {
       setSaveState('error');
       setSaveMessage(error instanceof Error ? error.message : 'Save failed');
+    }
+  };
+
+  const importStencilConfig = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const imported = headersFromStencilYaml(await file.text());
+      if (imported.headers.length === 0) {
+        throw new Error('Stencil config has no fields');
+      }
+      const nextColumns = columnsFromHeaders(imported.headers);
+      setColumns(nextColumns);
+      setRows([emptyRow('draft-1', nextColumns)]);
+      setSheetForm(null);
+      setSaveState('idle');
+      setSaveMessage(`Imported ${imported.headers.length} headers`);
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Stencil import failed');
+    } finally {
+      if (stencilInputRef.current) {
+        stencilInputRef.current.value = '';
+      }
     }
   };
 
@@ -321,10 +355,17 @@ export function App() {
               <Save size={16} />
               {saveState === 'saving' ? 'Saving' : 'Save'}
             </button>
-            <button className="toolbar-button" type="button">
+            <button className="toolbar-button" onClick={() => stencilInputRef.current?.click()} type="button">
               <Import size={16} />
               Import Stencil config
             </button>
+            <input
+              ref={stencilInputRef}
+              accept=".stencil.yaml,.stencil.yml,.yaml,.yml"
+              className="file-input"
+              onChange={(event) => void importStencilConfig(event.target.files?.[0])}
+              type="file"
+            />
             <button className="toolbar-button" type="button">
               <Download size={16} />
               Export

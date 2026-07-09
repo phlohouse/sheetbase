@@ -64,4 +64,30 @@ describe('App', () => {
     expect(calls[2].init?.body).toContain('"company":"Vercel"');
     expect(calls[2].init?.body).toContain('"domain":"vercel.com"');
   });
+
+  it('imports header columns from a Stencil config', async () => {
+    const { container } = render(<App />);
+    const file = new File([`
+name: contacts
+versions:
+  "v1.0":
+    fields:
+      full_name: { cell: A2 }
+      contact_table:
+        range: A10:C
+        type: table
+        columns:
+          A: Email
+          B: Company
+`], 'contacts.stencil.yaml', { type: 'text/yaml' });
+
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).toBeTruthy();
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    expect(await screen.findByText('Imported 3 headers')).toBeTruthy();
+    expect(screen.getByDisplayValue('Full Name')).toBeTruthy();
+    expect(screen.getByDisplayValue('Email')).toBeTruthy();
+    expect(screen.getByDisplayValue('Company')).toBeTruthy();
+  });
 });

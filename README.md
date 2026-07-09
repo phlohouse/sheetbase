@@ -1,6 +1,7 @@
 # Sheetbase
 
 Spreadsheet-like data entry backed by real PostgreSQL tables and exposed through a PostgREST-style API.
+Stencil `.stencil.yaml` configs can be imported in the UI to seed Header Row columns.
 
 Start with [docs/plans/PLAN.md](docs/plans/PLAN.md).
 

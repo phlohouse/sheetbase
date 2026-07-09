@@ -464,6 +464,10 @@ input[type='checkbox'] {
   accent-color: var(--primary);
 }
 
+.file-input {
+  display: none;
+}
+
 .data-cell {
   justify-content: flex-start;
   font-size: 14px;
