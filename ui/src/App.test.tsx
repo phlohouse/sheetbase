@@ -95,9 +95,11 @@ describe('App', () => {
 
   it('creates a new Sheet Form with an editable name', async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
+    let insertAttempts = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       calls.push({ input: String(input), init });
-      if (String(input).includes('/rpc/create_sheet_form')) {
+      const url = String(input);
+      if (url.includes('/rpc/create_sheet_form')) {
         return new Response(JSON.stringify({
           id: 'form-1',
           slug: 'requests',
@@ -105,11 +107,17 @@ describe('App', () => {
           generated_table_name: 'sheet_requests',
         }), { status: 200 });
       }
-      if (String(input).includes('/sheet_fields')) {
+      if (url.includes('/sheet_fields')) {
         return new Response(JSON.stringify([
           { id: 'field-1', name: 'Requester', column_name: 'requester', position: 0, type: 'text', hidden: false },
           { id: 'field-2', name: 'Issue', column_name: 'issue', position: 1, type: 'text', hidden: false },
         ]), { status: 200 });
+      }
+      if (url.includes('/sheet_requests') && init?.method === 'POST') {
+        insertAttempts += 1;
+        if (insertAttempts === 1) {
+          return new Response('{}', { status: 404 });
+        }
       }
       return new Response(JSON.stringify([]), { status: 200 });
     }));
@@ -125,13 +133,16 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
-      expect(calls.some((call) => call.input.includes('/rpc/create_sheet_form'))).toBe(true);
+      expect(insertAttempts).toBe(2);
     });
     const createCall = calls.find((call) => call.input.includes('/rpc/create_sheet_form'));
+    const insertCall = calls.find((call) => call.input.includes('/sheet_requests') && call.init?.method === 'POST');
     expect(createCall?.init?.body).toBe(JSON.stringify({
       name: 'Support Requests',
       headers: ['Requester', 'Issue'],
     }));
+    expect(insertCall?.init?.body).toContain('"requester":"Gareth"');
+    expect(insertCall?.init?.body).toContain('"issue":"Cannot log in"');
   });
 
   it('shows save errors and lets the user retry', async () => {

@@ -162,14 +162,24 @@ export async function insertRows<T extends Record<string, unknown>>(
   rows: T[],
   fetcher: typeof fetch = fetch,
 ): Promise<T[]> {
-  return request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}`, fetcher, {
+  const url = `${postgrestUrl}/${encodeURIComponent(tableName)}`;
+  const init = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Prefer: 'return=representation',
     },
     body: JSON.stringify(rows),
-  });
+  };
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      return await request<T[]>(url, fetcher, init);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('404') || attempt === 19) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw new Error('PostgREST request failed: 404');
 }
 
 export async function updateRow<T extends Record<string, unknown>>(
@@ -192,7 +202,7 @@ async function request<T>(url: string, fetcher: typeof fetch, init?: RequestInit
   const response = await fetcher(url, init);
   if (!response.ok) {
     const detail = (await response.text()).trim();
-    throw new Error(detail || `PostgREST request failed: ${response.status}`);
+    throw new Error(detail && detail !== '{}' ? detail : `PostgREST request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
 }

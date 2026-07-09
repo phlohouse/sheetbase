@@ -106,6 +106,34 @@ func TestAuthProtectsAPIProxy(t *testing.T) {
 	}
 }
 
+func TestUIHandlerLogsAPIRequests(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	defer slog.SetDefault(previous)
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer backend.Close()
+
+	handler, err := newUIHandler(backend.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms?select=*", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	logs := output.String()
+	for _, want := range []string{`msg="http request"`, "method=GET", "path=/api/sheet_forms", "status=200"} {
+		if !strings.Contains(logs, want) {
+			t.Fatalf("log missing %q:\n%s", want, logs)
+		}
+	}
+}
+
 func TestAuthRejectsExpiredSession(t *testing.T) {
 	auth := &authService{
 		sessions: map[string]sessionRecord{

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 )
 
 //go:embed ui/dist/*
@@ -184,6 +185,20 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logged := strings.HasPrefix(r.URL.Path, "/api") || strings.HasPrefix(r.URL.Path, "/auth/")
+		recorder := &responseLogWriter{ResponseWriter: w, status: http.StatusOK}
+		if logged {
+			defer func(start time.Time) {
+				slog.Info("http request",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", recorder.status,
+					"duration_ms", time.Since(start).Milliseconds(),
+				)
+			}(time.Now())
+			w = recorder
+		}
+
 		if r.URL.Path == "/healthz" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok\n"))
@@ -216,6 +231,16 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	}), nil
+}
+
+type responseLogWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *responseLogWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
 }
 
 func handleAuth(auth *authService, w http.ResponseWriter, r *http.Request) {
