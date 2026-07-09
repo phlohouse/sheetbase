@@ -33,4 +33,10 @@ describe('api client', () => {
     expect(calls[6].init?.method).toBe('PATCH');
     expect(calls[6].init?.body).toBe(JSON.stringify({ company: 'Acme Labs' }));
   });
+
+  it('surfaces PostgREST response text on failures', async () => {
+    const fetcher = (async () => new Response('permission denied for sheet form', { status: 403 })) as typeof fetch;
+
+    await expect(listSheetForms(fetcher)).rejects.toThrow('permission denied for sheet form');
+  });
 });

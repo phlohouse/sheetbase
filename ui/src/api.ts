@@ -98,7 +98,8 @@ export async function updateRow<T extends Record<string, unknown>>(
 async function request<T>(url: string, fetcher: typeof fetch, init?: RequestInit): Promise<T> {
   const response = await fetcher(url, init);
   if (!response.ok) {
-    throw new Error(`PostgREST request failed: ${response.status}`);
+    const detail = (await response.text()).trim();
+    throw new Error(detail || `PostgREST request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
 }

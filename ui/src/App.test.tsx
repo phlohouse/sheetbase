@@ -110,6 +110,50 @@ describe('App', () => {
     }));
   });
 
+  it('shows save errors and lets the user retry', async () => {
+    let insertAttempts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/rpc/create_sheet_form')) {
+        return new Response(JSON.stringify({
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_abc',
+        }), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_abc') && init?.method === 'POST') {
+        insertAttempts += 1;
+        if (insertAttempts === 1) {
+          return new Response('database is unavailable', { status: 503 });
+        }
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New form' }));
+    fireEvent.change(screen.getByLabelText('Header 1'), { target: { value: 'Company' } });
+    fireEvent.change(screen.getAllByLabelText('Company value')[0], { target: { value: 'Acme Labs' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('database is unavailable')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(insertAttempts).toBe(2);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toMatch(/Saved \d+ row/);
+    });
+  });
+
   it('loads the latest Sheet Form from PostgREST', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
