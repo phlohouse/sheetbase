@@ -7,11 +7,10 @@ import (
 )
 
 func doctorApp(args []string) error {
-	cfg, err := parseAppConfig("doctor", args)
-	if err != nil {
+	if _, err := parseAppConfig("doctor", args); err != nil {
 		return err
 	}
-	missing := missingCommands(cfg)
+	missing := missingCommands()
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required commands: %s", strings.Join(missing, ", "))
 	}
@@ -19,15 +18,10 @@ func doctorApp(args []string) error {
 	return nil
 }
 
-func missingCommands(cfg appConfig) []string {
+func missingCommands() []string {
 	var missing []string
-	for _, command := range []string{"initdb", "pg_ctl", "psql", "pg_dump", "pg_restore"} {
-		if _, err := exec.LookPath(commandPath(cfg.postgresBin, command)); err != nil {
-			missing = append(missing, command)
-		}
-	}
-	if _, err := exec.LookPath(cfg.postgrestBin); err != nil {
-		missing = append(missing, "postgrest")
+	if _, err := exec.LookPath("docker"); err != nil {
+		missing = append(missing, "docker")
 	}
 	return missing
 }

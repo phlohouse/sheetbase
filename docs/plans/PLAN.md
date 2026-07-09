@@ -24,8 +24,8 @@ As an optional shortcut, a user can import a Stencil config to create a Sheet Fo
 One deployable Linux binary owns the operator experience:
 
 - serves the built React UI
-- installs and supervises PostgreSQL
-- installs and supervises PostgREST
+- supervises PostgreSQL in Docker
+- supervises PostgREST in Docker
 - initializes and migrates Control Tables
 - exposes tiny operational endpoints only when PostgREST cannot do the job
 
@@ -102,7 +102,7 @@ Commands:
 - `sheetbase restart`
 - `sheetbase status`
 
-V1 can download pinned PostgreSQL/PostgREST builds on `init`. Offline bundled installs can come later if needed.
+V1 uses Docker images for PostgreSQL and PostgREST. Native PostgreSQL/PostgREST installers can come later if needed.
 
 ## Auth
 
@@ -157,4 +157,4 @@ See [ROADMAP.md](ROADMAP.md) for the phase-by-phase implementation plan.
 - PostgREST replacement API
 - multi-OS support
 - OAuth/SAML
-- offline bundled PostgreSQL installer
+- native PostgreSQL/PostgREST installer

@@ -17,7 +17,6 @@ func TestInitAppCreatesHomeLayoutAndPostgRESTConfig(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		filepath.Join(home, "bin"),
 		filepath.Join(home, "backups"),
 		filepath.Join(home, "config"),
 		filepath.Join(home, "logs"),
@@ -37,8 +36,8 @@ func TestInitAppCreatesHomeLayoutAndPostgRESTConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(config)
-	if !strings.Contains(text, "127.0.0.1:55433") {
-		t.Fatalf("config does not contain postgres port: %s", text)
+	if !strings.Contains(text, "postgres://postgres:postgres@sheetbase-postgres-") {
+		t.Fatalf("config does not contain Docker postgres host: %s", text)
 	}
 	if !strings.Contains(text, "server-port = 3301") {
 		t.Fatalf("config does not contain postgrest port: %s", text)
@@ -76,8 +75,6 @@ func TestHTTPHealthyChecksHealthz(t *testing.T) {
 
 func TestParseAppConfigUsesEnvironmentDefaults(t *testing.T) {
 	t.Setenv("SHEETBASE_HOME", filepath.Join(t.TempDir(), "sheetbase"))
-	t.Setenv("SHEETBASE_POSTGRES_BIN", "/opt/postgres/bin")
-	t.Setenv("SHEETBASE_POSTGREST_BIN", "/opt/postgrest")
 	t.Setenv("SHEETBASE_POSTGRES_PORT", "55444")
 	t.Setenv("SHEETBASE_POSTGREST_PORT", "3002")
 	t.Setenv("SHEETBASE_JWT_SECRET", "test-secret")
@@ -87,12 +84,6 @@ func TestParseAppConfigUsesEnvironmentDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if cfg.postgresBin != "/opt/postgres/bin" {
-		t.Fatalf("postgresBin = %q", cfg.postgresBin)
-	}
-	if cfg.postgrestBin != "/opt/postgrest" {
-		t.Fatalf("postgrestBin = %q", cfg.postgrestBin)
-	}
 	if cfg.postgresPort != "55444" {
 		t.Fatalf("postgresPort = %q", cfg.postgresPort)
 	}

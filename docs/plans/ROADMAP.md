@@ -144,24 +144,23 @@ Build:
 
 - app home directory layout
 - `sheetbase init`
-- pinned PostgreSQL download/install
-- pinned PostgREST download/install
-- PostgreSQL initdb
-- PostgREST config file generation
+- managed PostgreSQL Docker container
+- managed PostgREST Docker container
+- PostgREST config/env generation
 - `start`, `stop`, `restart`, `status`
 - logs under app home
 - basic process health checks
 
 Acceptance:
 
-- fresh Linux machine can run `sheetbase init && sheetbase start`
+- fresh Linux machine with Docker can run `sheetbase init && sheetbase start`
 - `status` reports app, PostgreSQL, and PostgREST state
 - `restart` recovers both managed processes
 - one command-boundary test covers init/start/status/stop with temp app home
 
 Skipped:
 
-- offline bundled installers
+- native PostgreSQL/PostgREST installers
 - systemd integration
 - multi-OS support
 

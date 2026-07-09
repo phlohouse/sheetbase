@@ -20,16 +20,7 @@ func backupApp(args []string) error {
 	if target == "" {
 		target = defaultBackupPath(paths, time.Now().UTC())
 	}
-	if err := runCommand(
-		cfg.postgresBin,
-		"pg_dump",
-		"-h", paths.home,
-		"-p", cfg.postgresPort,
-		"-U", "postgres",
-		"-d", "postgres",
-		"-Fc",
-		"-f", target,
-	); err != nil {
+	if err := dockerExecToFile(target, "exec", containerName("postgres", paths), "pg_dump", "-U", "postgres", "-d", "postgres", "-Fc"); err != nil {
 		return err
 	}
 	fmt.Printf("backup written to %s\n", target)

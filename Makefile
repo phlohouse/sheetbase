@@ -1,4 +1,4 @@
-.PHONY: api-test app-test build db-test linux test serve ui-build
+.PHONY: api-test app-test build db-test linux managed-test test serve ui-build
 
 build: ui-build
 	go build -o bin/sheetbase .
@@ -18,6 +18,9 @@ api-test:
 
 app-test:
 	./scripts/test-app-auth.sh
+
+managed-test:
+	./scripts/test-managed-docker.sh
 
 serve: ui-build
 	go run . serve

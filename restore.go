@@ -14,18 +14,7 @@ func restoreApp(args []string) error {
 		return errors.New("restore requires --in FILE")
 	}
 	paths := newAppPaths(cfg.home)
-	if err := runCommand(
-		cfg.postgresBin,
-		"pg_restore",
-		"-h", paths.home,
-		"-p", cfg.postgresPort,
-		"-U", "postgres",
-		"-d", "postgres",
-		"--clean",
-		"--if-exists",
-		"--no-owner",
-		cfg.restoreIn,
-	); err != nil {
+	if err := dockerExecFromFile(cfg.restoreIn, "exec", "-i", containerName("postgres", paths), "pg_restore", "-U", "postgres", "-d", "postgres", "--clean", "--if-exists", "--no-owner"); err != nil {
 		return err
 	}
 	fmt.Printf("restored backup from %s\n", cfg.restoreIn)

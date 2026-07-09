@@ -1,8 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,16 +14,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
 type appConfig struct {
 	home          string
-	postgresBin   string
-	postgrestBin  string
 	postgresPort  string
 	postgrestPort string
 	appAddr       string
@@ -33,16 +30,12 @@ type appConfig struct {
 
 type appPaths struct {
 	home            string
-	bin             string
 	backups         string
 	config          string
 	logs            string
 	postgresData    string
-	postgresLog     string
 	postgrestConfig string
 	sheetbaseConfig string
-	postgrestLog    string
-	postgrestPid    string
 }
 
 func initApp(args []string) error {
@@ -54,7 +47,7 @@ func initApp(args []string) error {
 	if err := ensureAppHome(paths); err != nil {
 		return err
 	}
-	if err := writeSheetbaseConfig(paths, cfg); err != nil {
+	if err := writeSheetbaseConfig(paths, cfg, false); err != nil {
 		return err
 	}
 	if err := writePostgRESTConfig(paths, cfg); err != nil {
@@ -73,7 +66,7 @@ func startApp(args []string) error {
 	if err := ensureAppHome(paths); err != nil {
 		return err
 	}
-	if err := ensurePostgres(paths, cfg); err != nil {
+	if err := startPostgres(paths, cfg); err != nil {
 		return err
 	}
 	if err := applyMigrations(paths, cfg); err != nil {
@@ -107,12 +100,13 @@ func stopApp(args []string) error {
 		return err
 	}
 	paths := newAppPaths(cfg.home)
-	if err := stopPostgREST(paths); err != nil {
+	if err := dockerRm(containerName("postgrest", paths)); err != nil {
 		return err
 	}
-	if err := runCommand(cfg.postgresBin, "pg_ctl", "-D", paths.postgresData, "stop", "-m", "fast"); err != nil && !strings.Contains(err.Error(), "PID file") {
+	if err := dockerRm(containerName("postgres", paths)); err != nil {
 		return err
 	}
+	_ = runCommand("", "docker", "network", "rm", networkName(paths))
 	fmt.Printf("stopped Sheetbase services from %s\n", paths.home)
 	return nil
 }
@@ -125,8 +119,8 @@ func statusApp(args []string) error {
 	paths := newAppPaths(cfg.home)
 	fmt.Printf("home: %s\n", paths.home)
 	fmt.Printf("app: %s\n", statusText(httpHealthy(cfg.appAddr)))
-	fmt.Printf("postgres: %s\n", statusText(runCommand(cfg.postgresBin, "pg_ctl", "-D", paths.postgresData, "status") == nil))
-	fmt.Printf("postgrest: %s\n", statusText(isRunning(paths.postgrestPid)))
+	fmt.Printf("postgres: %s\n", statusText(containerRunning(containerName("postgres", paths))))
+	fmt.Printf("postgrest: %s\n", statusText(containerRunning(containerName("postgrest", paths))))
 	return nil
 }
 
@@ -140,8 +134,6 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	flags.SetOutput(os.Stderr)
 	cfg := appConfig{}
 	flags.StringVar(&cfg.home, "home", defaultHome, "Sheetbase home directory")
-	flags.StringVar(&cfg.postgresBin, "postgres-bin", envOrDefault("SHEETBASE_POSTGRES_BIN", ""), "directory containing initdb, pg_ctl, and psql")
-	flags.StringVar(&cfg.postgrestBin, "postgrest-bin", envOrDefault("SHEETBASE_POSTGREST_BIN", "postgrest"), "postgrest executable path")
 	flags.StringVar(&cfg.appAddr, "addr", envOrDefault("SHEETBASE_ADDR", ":8080"), "Sheetbase HTTP listen address")
 	flags.StringVar(&cfg.postgresPort, "postgres-port", envOrDefault("SHEETBASE_POSTGRES_PORT", "55432"), "managed PostgreSQL port")
 	flags.StringVar(&cfg.postgrestPort, "postgrest-port", envOrDefault("SHEETBASE_POSTGREST_PORT", "3000"), "managed PostgREST port")
@@ -179,21 +171,17 @@ func defaultAppHome() (string, error) {
 func newAppPaths(home string) appPaths {
 	return appPaths{
 		home:            home,
-		bin:             filepath.Join(home, "bin"),
 		backups:         filepath.Join(home, "backups"),
 		config:          filepath.Join(home, "config"),
 		logs:            filepath.Join(home, "logs"),
 		postgresData:    filepath.Join(home, "data", "postgres"),
-		postgresLog:     filepath.Join(home, "logs", "postgres.log"),
 		postgrestConfig: filepath.Join(home, "config", "postgrest.conf"),
 		sheetbaseConfig: filepath.Join(home, "config", "sheetbase.env"),
-		postgrestLog:    filepath.Join(home, "logs", "postgrest.log"),
-		postgrestPid:    filepath.Join(home, "postgrest.pid"),
 	}
 }
 
 func ensureAppHome(paths appPaths) error {
-	for _, dir := range []string{paths.bin, paths.backups, paths.config, paths.logs, paths.postgresData} {
+	for _, dir := range []string{paths.backups, paths.config, paths.logs, paths.postgresData} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create %s: %w", dir, err)
 		}
@@ -201,25 +189,32 @@ func ensureAppHome(paths appPaths) error {
 	return nil
 }
 
-func ensurePostgres(paths appPaths, cfg appConfig) error {
-	if _, err := os.Stat(filepath.Join(paths.postgresData, "PG_VERSION")); errors.Is(err, os.ErrNotExist) {
-		if err := runCommand(cfg.postgresBin, "initdb", "-D", paths.postgresData, "--auth-local=trust", "--auth-host=trust"); err != nil {
-			return err
-		}
-	}
-
-	if runCommand(cfg.postgresBin, "pg_ctl", "-D", paths.postgresData, "status") == nil {
+func startPostgres(paths appPaths, cfg appConfig) error {
+	if containerRunning(containerName("postgres", paths)) {
 		return nil
 	}
-
-	return runCommand(
-		cfg.postgresBin,
-		"pg_ctl",
-		"-D", paths.postgresData,
-		"-l", paths.postgresLog,
-		"-o", fmt.Sprintf("-p %s -k %s", cfg.postgresPort, paths.home),
-		"start",
-	)
+	_ = runCommand("", "docker", "network", "create", networkName(paths))
+	if err := runCommand("", "docker", "run",
+		"--detach",
+		"--name", containerName("postgres", paths),
+		"--network", networkName(paths),
+		"--publish", cfg.postgresPort+":5432",
+		"--env", "POSTGRES_PASSWORD=postgres",
+		"--volume", paths.postgresData+":/var/lib/postgresql/data",
+		"postgres:16-alpine",
+	); err != nil {
+		return err
+	}
+	for range 80 {
+		if runCommand("", "docker", "exec", containerName("postgres", paths), "pg_isready", "-U", "postgres") == nil {
+			time.Sleep(time.Second)
+			if runCommand("", "docker", "exec", containerName("postgres", paths), "pg_isready", "-U", "postgres") == nil {
+				return nil
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return errors.New("postgres did not become ready")
 }
 
 func applyMigrations(paths appPaths, cfg appConfig) error {
@@ -235,8 +230,8 @@ func applyMigrations(paths appPaths, cfg appConfig) error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
 		}
-		cmd := exec.Command(commandPath(cfg.postgresBin, "psql"), "-v", "ON_ERROR_STOP=1", "-h", paths.home, "-p", cfg.postgresPort, "-U", "postgres", "-d", "postgres")
-		cmd.Stdin = bytes.NewReader(sql)
+		cmd := exec.Command("docker", "exec", "-i", containerName("postgres", paths), "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres")
+		cmd.Stdin = strings.NewReader(string(sql))
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("apply migration %s: %w\n%s", entry.Name(), err, strings.TrimSpace(string(output)))
@@ -246,19 +241,19 @@ func applyMigrations(paths appPaths, cfg appConfig) error {
 }
 
 func writePostgRESTConfig(paths appPaths, cfg appConfig) error {
-	config := fmt.Sprintf(`db-uri = "postgres://postgres@127.0.0.1:%s/postgres"
+	config := fmt.Sprintf(`db-uri = "postgres://postgres:postgres@%s:5432/postgres"
 db-schemas = "public"
 db-anon-role = "sheetbase_api"
 server-host = "127.0.0.1"
 server-port = %s
 openapi-mode = "follow-privileges"
 jwt-secret = "%s"
-`, cfg.postgresPort, cfg.postgrestPort, cfg.jwtSecret)
+`, containerName("postgres", paths), cfg.postgrestPort, cfg.jwtSecret)
 	return os.WriteFile(paths.postgrestConfig, []byte(config), 0o644)
 }
 
-func writeSheetbaseConfig(paths appPaths, cfg appConfig) error {
-	if _, err := os.Stat(paths.sheetbaseConfig); err == nil {
+func writeSheetbaseConfig(paths appPaths, cfg appConfig, overwrite bool) error {
+	if _, err := os.Stat(paths.sheetbaseConfig); err == nil && !overwrite {
 		return nil
 	}
 	config := fmt.Sprintf(`SHEETBASE_ADDR=%s
@@ -304,25 +299,22 @@ func mergeFileConfig(cfg appConfig, values map[string]string, visited map[string
 }
 
 func startPostgREST(paths appPaths, cfg appConfig) error {
-	if isRunning(paths.postgrestPid) {
+	if containerRunning(containerName("postgrest", paths)) {
 		return nil
 	}
-	logFile, err := os.OpenFile(paths.postgrestLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return fmt.Errorf("open PostgREST log: %w", err)
-	}
-	defer logFile.Close()
-
-	cmd := exec.Command(cfg.postgrestBin, paths.postgrestConfig)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start PostgREST: %w", err)
-	}
-	if err := os.WriteFile(paths.postgrestPid, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
-		_ = cmd.Process.Kill()
-		return fmt.Errorf("write PostgREST pid: %w", err)
+	if err := runCommand("", "docker", "run",
+		"--detach",
+		"--name", containerName("postgrest", paths),
+		"--network", networkName(paths),
+		"--publish", cfg.postgrestPort+":3000",
+		"--env", "PGRST_DB_URI=postgres://postgres:postgres@"+containerName("postgres", paths)+":5432/postgres",
+		"--env", "PGRST_DB_SCHEMAS=public",
+		"--env", "PGRST_DB_ANON_ROLE=sheetbase_api",
+		"--env", "PGRST_JWT_SECRET="+cfg.jwtSecret,
+		"--env", "PGRST_OPENAPI_MODE=follow-privileges",
+		"postgrest/postgrest:v12.2.8",
+	); err != nil {
+		return err
 	}
 	if err := waitForPort("127.0.0.1:"+cfg.postgrestPort, 5*time.Second); err != nil {
 		return fmt.Errorf("wait for PostgREST: %w", err)
@@ -330,47 +322,13 @@ func startPostgREST(paths appPaths, cfg appConfig) error {
 	return nil
 }
 
-func stopPostgREST(paths appPaths) error {
-	pid, err := readPID(paths.postgrestPid)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("find PostgREST process: %w", err)
-	}
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
-	_ = process.Signal(syscall.SIGTERM)
-	for range 20 {
-		if !processAlive(pid) {
-			_ = os.Remove(paths.postgrestPid)
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
-	_ = process.Kill()
-	_ = os.Remove(paths.postgrestPid)
-	return nil
-}
-
-func runCommand(binDir, name string, args ...string) error {
-	cmd := exec.Command(commandPath(binDir, name), args...)
+func runCommand(_ string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return nil
-}
-
-func commandPath(binDir, name string) string {
-	if binDir == "" {
-		return name
-	}
-	return filepath.Join(binDir, name)
 }
 
 func envOrDefault(name, fallback string) string {
@@ -385,34 +343,6 @@ func statusText(running bool) string {
 		return "running"
 	}
 	return "stopped"
-}
-
-func isRunning(pidPath string) bool {
-	pid, err := readPID(pidPath)
-	if err != nil {
-		return false
-	}
-	return processAlive(pid)
-}
-
-func readPID(pidPath string) (int, error) {
-	data, err := os.ReadFile(pidPath)
-	if err != nil {
-		return 0, err
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, fmt.Errorf("read pid %s: %w", pidPath, err)
-	}
-	return pid, nil
-}
-
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func waitForPort(address string, timeout time.Duration) error {
@@ -431,6 +361,58 @@ func waitForPort(address string, timeout time.Duration) error {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+func dockerRm(name string) error {
+	_ = runCommand("", "docker", "rm", "-f", name)
+	return nil
+}
+
+func containerRunning(name string) bool {
+	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", name)
+	output, err := cmd.Output()
+	return err == nil && strings.TrimSpace(string(output)) == "true"
+}
+
+func containerName(kind string, paths appPaths) string {
+	sum := sha1.Sum([]byte(paths.home))
+	return "sheetbase-" + kind + "-" + hex.EncodeToString(sum[:])[:12]
+}
+
+func networkName(paths appPaths) string {
+	sum := sha1.Sum([]byte(paths.home))
+	return "sheetbase-" + hex.EncodeToString(sum[:])[:12]
+}
+
+func dockerExecToFile(target string, args ...string) error {
+	file, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	cmd := exec.Command("docker", args...)
+	cmd.Stdout = file
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker %s: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+func dockerExecFromFile(source string, args ...string) error {
+	file, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	cmd := exec.Command("docker", args...)
+	cmd.Stdin = file
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker %s: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func httpHealthy(addr string) bool {
