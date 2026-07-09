@@ -100,7 +100,7 @@ func TestParseAppConfigReadsFileButKeepsFlagPrecedence(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "config", "sheetbase.env"), []byte("SHEETBASE_ADDR=:9999\nSHEETBASE_POSTGRES_PORT=55555\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "config", "sheetbase.env"), []byte("SHEETBASE_ADDR=:9999\nSHEETBASE_POSTGRES_PORT=55555\nSHEETBASE_POSTGREST_URL=http://postgrest.test\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,6 +113,9 @@ func TestParseAppConfigReadsFileButKeepsFlagPrecedence(t *testing.T) {
 	}
 	if cfg.postgresPort != "55555" {
 		t.Fatalf("postgresPort = %q, want file value", cfg.postgresPort)
+	}
+	if cfg.postgrestURL != "http://postgrest.test" {
+		t.Fatalf("postgrestURL = %q, want file value", cfg.postgrestURL)
 	}
 }
 

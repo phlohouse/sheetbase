@@ -301,6 +301,12 @@ func mergeFileConfig(cfg appConfig, values map[string]string, visited map[string
 	if !visited["jwt-secret"] && os.Getenv("SHEETBASE_JWT_SECRET") == "" && values["SHEETBASE_JWT_SECRET"] != "" {
 		cfg.jwtSecret = values["SHEETBASE_JWT_SECRET"]
 	}
+	if !visited["postgrest-url"] && os.Getenv("SHEETBASE_POSTGREST_URL") == "" && values["SHEETBASE_POSTGREST_URL"] != "" {
+		cfg.postgrestURL = values["SHEETBASE_POSTGREST_URL"]
+	}
+	if !visited["db-url"] && os.Getenv("SHEETBASE_DB_URL") == "" && values["SHEETBASE_DB_URL"] != "" {
+		cfg.dbURL = values["SHEETBASE_DB_URL"]
+	}
 	return cfg
 }
 
