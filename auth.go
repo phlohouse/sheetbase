@@ -23,8 +23,13 @@ import (
 type authService struct {
 	store     userStore
 	jwtSecret string
-	sessions  map[string]string
+	sessions  map[string]sessionRecord
 	mu        sync.Mutex
+}
+
+type sessionRecord struct {
+	userID  string
+	expires time.Time
 }
 
 type userStore interface {
@@ -47,7 +52,7 @@ func newAuthService(dbURL, jwtSecret string) (*authService, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("connect auth database: %w", err)
 	}
-	return &authService{store: sqlUserStore{db: db}, jwtSecret: jwtSecret, sessions: map[string]string{}}, nil
+	return &authService{store: sqlUserStore{db: db}, jwtSecret: jwtSecret, sessions: map[string]sessionRecord{}}, nil
 }
 
 func (a *authService) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -122,20 +127,28 @@ func (a *authService) userID(r *http.Request) (string, bool) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	id, ok := a.sessions[cookie.Value]
-	return id, ok
+	session, ok := a.sessions[cookie.Value]
+	if !ok {
+		return "", false
+	}
+	if time.Now().After(session.expires) {
+		delete(a.sessions, cookie.Value)
+		return "", false
+	}
+	return session.userID, true
 }
 
 func (a *authService) setSession(w http.ResponseWriter, userID string) {
 	token := randomToken()
+	expires := time.Now().Add(24 * time.Hour)
 	a.mu.Lock()
-	a.sessions[token] = userID
+	a.sessions[token] = sessionRecord{userID: userID, expires: expires}
 	a.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "sheetbase_session",
 		Value:    token,
 		Path:     "/",
-		Expires:  time.Now().Add(24 * time.Hour),
+		Expires:  expires,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})

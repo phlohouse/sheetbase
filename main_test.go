@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUIHandlerServesAppShellAndHealth(t *testing.T) {
@@ -76,7 +77,7 @@ func TestAuthProtectsAPIProxy(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	auth := &authService{store: &fakeUserStore{}, jwtSecret: defaultJWTSecret, sessions: map[string]string{}}
+	auth := &authService{store: &fakeUserStore{}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
 	handler, err := newUIHandler(backend.URL, auth)
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +103,23 @@ func TestAuthProtectsAPIProxy(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("authenticated API status = %d, want %d", res.Code, http.StatusOK)
+	}
+}
+
+func TestAuthRejectsExpiredSession(t *testing.T) {
+	auth := &authService{
+		sessions: map[string]sessionRecord{
+			"expired": {userID: "user-1", expires: time.Now().Add(-time.Minute)},
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
+	req.AddCookie(&http.Cookie{Name: "sheetbase_session", Value: "expired"})
+
+	if _, ok := auth.userID(req); ok {
+		t.Fatalf("expired session was accepted")
+	}
+	if _, ok := auth.sessions["expired"]; ok {
+		t.Fatalf("expired session was not deleted")
 	}
 }
 
