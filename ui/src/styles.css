@@ -336,6 +336,22 @@ h1 {
   padding: 0 11px;
 }
 
+.toolbar-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+.primary-action {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--surface);
+}
+
+.primary-action:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
 .view-pill {
   height: 36px;
   font-size: 15px;
@@ -490,6 +506,32 @@ input[type='checkbox'] {
 .pill-neutral {
   background: var(--surface-muted);
   color: var(--muted);
+}
+
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  margin-left: auto;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.save-status.saved {
+  border-color: oklch(0.9 0.07 160);
+  background: var(--pill-green);
+  color: var(--pill-green-ink);
+}
+
+.save-status.error {
+  border-color: oklch(0.88 0.08 24);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .pill-blue {

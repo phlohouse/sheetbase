@@ -12,6 +12,7 @@ import {
   Import,
   MoreHorizontal,
   Plus,
+  Save,
   Search,
   Settings,
   Sparkles,
@@ -19,6 +20,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { KeyboardEvent, useMemo, useRef, useState } from 'react';
+import { createSheetForm, insertRows, listSheetFields, SheetField, SheetForm } from './api';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
 
@@ -105,6 +107,9 @@ export function App() {
   const [columns, setColumns] = useState(initialColumns);
   const [rows, setRows] = useState(initialRows);
   const [activeCell, setActiveCell] = useState<ActiveCell>({ rowIndex: 0, columnIndex: 0, kind: 'body' });
+  const [sheetForm, setSheetForm] = useState<SheetForm | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveMessage, setSaveMessage] = useState('Local draft');
   const gridRef = useRef<HTMLDivElement>(null);
 
   const templateColumns = useMemo(
@@ -152,6 +157,35 @@ export function App() {
       requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: currentColumns.length }));
       return [...currentColumns, column];
     });
+  };
+
+  const saveToAPI = async () => {
+    const headers = columns.map((column) => column.label.trim()).filter(Boolean);
+    if (headers.length === 0) {
+      setSaveState('error');
+      setSaveMessage('Add at least one header');
+      return;
+    }
+
+    setSaveState('saving');
+    setSaveMessage('Saving');
+
+    try {
+      const form = sheetForm ?? await createSheetForm('Companies', headers);
+      if (!sheetForm) {
+        setSheetForm(form);
+      }
+      const fields = await listSheetFields(form.id);
+      const payload = rowsToPayload(rows, columns, fields);
+      if (payload.length > 0) {
+        await insertRows(form.generated_table_name, payload);
+      }
+      setSaveState('saved');
+      setSaveMessage(payload.length === 1 ? 'Saved 1 row' : `Saved ${payload.length} rows`);
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Save failed');
+    }
   };
 
   const moveCell = (from: ActiveCell, key: string) => {
@@ -283,6 +317,10 @@ export function App() {
               <Settings size={16} />
               View settings
             </button>
+            <button className="toolbar-button primary-action" disabled={saveState === 'saving'} onClick={saveToAPI} type="button">
+              <Save size={16} />
+              {saveState === 'saving' ? 'Saving' : 'Save'}
+            </button>
             <button className="toolbar-button" type="button">
               <Import size={16} />
               Import Stencil config
@@ -303,6 +341,9 @@ export function App() {
           <button className="filter-chip" type="button">
             Advanced filter <span>3</span>
           </button>
+          <div className={`save-status ${saveState}`} role="status">
+            {saveMessage}
+          </div>
           <button className="add-filter" onClick={addColumn} type="button" aria-label="Add column">
             <Plus size={17} />
           </button>
@@ -350,6 +391,24 @@ export function App() {
       </main>
     </div>
   );
+}
+
+function rowsToPayload(rows: Row[], columns: Column[], fields: SheetField[]) {
+  const fieldsByName = new Map(fields.map((field) => [field.name.trim().toLowerCase(), field]));
+  return rows
+    .map((currentRow) => {
+      const record: Record<string, string> = {};
+      columns.forEach((column) => {
+        const header = column.label.trim();
+        const value = (currentRow.values[column.key] ?? '').trim();
+        const field = fieldsByName.get(header.toLowerCase());
+        if (field && value !== '') {
+          record[field.column_name] = value;
+        }
+      });
+      return record;
+    })
+    .filter((record) => Object.keys(record).length > 0);
 }
 
 interface RowCellsProps {

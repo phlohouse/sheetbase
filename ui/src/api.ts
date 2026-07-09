@@ -49,6 +49,21 @@ export async function listRows<T extends Record<string, unknown>>(
   return request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}?select=*`, fetcher);
 }
 
+export async function insertRows<T extends Record<string, unknown>>(
+  tableName: string,
+  rows: T[],
+  fetcher: typeof fetch = fetch,
+): Promise<T[]> {
+  return request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}`, fetcher, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(rows),
+  });
+}
+
 async function request<T>(url: string, fetcher: typeof fetch, init?: RequestInit): Promise<T> {
   const response = await fetcher(url, init);
   if (!response.ok) {
