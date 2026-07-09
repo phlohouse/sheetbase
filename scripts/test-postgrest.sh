@@ -6,6 +6,7 @@ postgres="sheetbase-postgres-api-test-$$"
 postgrest="sheetbase-postgrest-api-test-$$"
 jwt_secret="sheetbase-dev-secret-change-me-32-bytes-minimum"
 user_id="00000000-0000-0000-0000-000000000001"
+other_user_id="00000000-0000-0000-0000-000000000002"
 
 cleanup() {
   docker rm -f "$postgrest" "$postgres" >/dev/null 2>&1 || true
@@ -64,8 +65,8 @@ if [[ "$ready" != "yes" ]]; then
   exit 1
 fi
 
-jwt="$(
-  python3 - "$jwt_secret" "$user_id" <<'PY'
+jwt_for_user() {
+  python3 - "$jwt_secret" "$1" <<'PY'
 import base64, hashlib, hmac, json, sys, time
 
 secret, user_id = sys.argv[1], sys.argv[2]
@@ -79,8 +80,11 @@ unsigned = f"{header}.{payload}"
 signature = enc(hmac.new(secret.encode(), unsigned.encode(), hashlib.sha256).digest())
 print(f"{unsigned}.{signature}")
 PY
-)"
+}
+
+jwt="$(jwt_for_user "$user_id")"
 auth_header="Authorization: Bearer $jwt"
+other_auth_header="Authorization: Bearer $(jwt_for_user "$other_user_id")"
 
 form_json="$(
   curl --fail --silent \
@@ -143,6 +147,37 @@ metadata="$(
 metadata_count="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
 if [[ "$metadata_count" != "3" ]]; then
   echo "Metadata discovery failed: $metadata" >&2
+  exit 1
+fi
+
+other_rows="$(
+  curl --fail --silent \
+    --header "$other_auth_header" \
+    "$base_url/$generated_table?select=company"
+)"
+other_count="$(printf '%s' "$other_rows" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+if [[ "$other_count" != "0" ]]; then
+  echo "Unauthorized user saw generated rows: $other_rows" >&2
+  exit 1
+fi
+
+other_metadata="$(
+  curl --fail --silent \
+    --header "$other_auth_header" \
+    "$base_url/sheet_fields?sheet_form_id=eq.$form_id&select=name"
+)"
+other_metadata_count="$(printf '%s' "$other_metadata" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+if [[ "$other_metadata_count" != "0" ]]; then
+  echo "Unauthorized user saw metadata: $other_metadata" >&2
+  exit 1
+fi
+
+if curl --fail --silent \
+  --header "$other_auth_header" \
+  --header 'Content-Type: application/json' \
+  --data '[{"company":"Intruder"}]' \
+  "$base_url/$generated_table" >/dev/null; then
+  echo "Unauthorized user inserted a generated row" >&2
   exit 1
 fi
 
