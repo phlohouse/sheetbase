@@ -424,6 +424,37 @@ input:focus-visible {
   background: var(--surface-raised);
 }
 
+.api-summary {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.35fr) 1fr;
+  gap: 18px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.api-summary div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.api-summary strong {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.api-summary code,
+.api-summary span {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .filter-chip span {
   display: inline-grid;
   place-items: center;
@@ -438,6 +469,10 @@ input:focus-visible {
 .table-frame {
   overflow: auto;
   height: calc(100vh - 192px);
+}
+
+.table-frame.with-api-summary {
+  height: calc(100vh - 251px);
 }
 
 .data-grid {

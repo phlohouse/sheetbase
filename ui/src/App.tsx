@@ -542,7 +542,20 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           </button>
         </section>
 
-        <section className="table-frame" aria-label={`${formName || 'Untitled'} Sheet Form`}>
+        {sheetForm ? (
+          <section className="api-summary" aria-label="API documentation">
+            <div>
+              <strong>API endpoint</strong>
+              <code>/api/{sheetForm.generated_table_name}</code>
+            </div>
+            <div>
+              <strong>Fields</strong>
+              <span>{columns.map((column) => `${column.label || column.key}:${column.type}`).join(', ')}</span>
+            </div>
+          </section>
+        ) : null}
+
+        <section className={`table-frame ${sheetForm ? 'with-api-summary' : ''}`} aria-label={`${formName || 'Untitled'} Sheet Form`}>
           <div className="data-grid" ref={gridRef} style={{ gridTemplateColumns: templateColumns }}>
             <div className="cell header select-cell">
               <input aria-label="Select all rows" type="checkbox" />

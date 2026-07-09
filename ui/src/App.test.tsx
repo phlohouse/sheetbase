@@ -188,6 +188,35 @@ describe('App', () => {
     expect(screen.getByText('Loaded from database')).toBeTruthy();
   });
 
+  it('shows generated API documentation for the loaded Sheet Form', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([{
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_companies',
+        }]), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { id: 'field-1', name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+          { id: 'field-2', name: 'Rows', column_name: 'rows', position: 1, type: 'integer', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_companies')) {
+        return new Response(JSON.stringify([{ id: 'row-1', company: 'Acme Labs', rows: 42 }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByText('/api/sheet_companies')).toBeTruthy();
+    expect(screen.getByText('Company:text, Rows:integer')).toBeTruthy();
+  });
+
   it('switches between Sheet Forms from the sidebar', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
