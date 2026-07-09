@@ -42,6 +42,21 @@ export async function createSheetForm(
   });
 }
 
+export async function addSheetField(
+  sheetFormId: string,
+  name: string,
+  fetcher: typeof fetch = fetch,
+): Promise<SheetField> {
+  return request<SheetField>(`${postgrestUrl}/rpc/add_sheet_field`, fetcher, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ sheet_form_id: sheetFormId, name }),
+  });
+}
+
 export async function listRows<T extends Record<string, unknown>>(
   tableName: string,
   fetcher: typeof fetch = fetch,

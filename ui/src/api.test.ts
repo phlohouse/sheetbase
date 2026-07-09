@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSheetForm, insertRows, listRows, listSheetFields, listSheetForms } from './api';
+import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms } from './api';
 
 describe('api client', () => {
   it('uses PostgREST endpoints for forms, fields, RPC, and generated rows', async () => {
@@ -12,6 +12,7 @@ describe('api client', () => {
     await listSheetForms(fetcher);
     await listSheetFields('form-1', fetcher);
     await createSheetForm('Companies', ['Company'], fetcher);
+    await addSheetField('form-1', 'Domain', fetcher);
     await listRows('sheet_abc', fetcher);
     await insertRows('sheet_abc', [{ company: 'Acme' }], fetcher);
 
@@ -20,9 +21,12 @@ describe('api client', () => {
     expect(calls[2].input).toContain('/rpc/create_sheet_form');
     expect(calls[2].init?.method).toBe('POST');
     expect(calls[2].init?.body).toBe(JSON.stringify({ name: 'Companies', headers: ['Company'] }));
-    expect(calls[3].input).toContain('/sheet_abc?select=*');
-    expect(calls[4].input).toContain('/sheet_abc');
-    expect(calls[4].init?.method).toBe('POST');
-    expect(calls[4].init?.body).toBe(JSON.stringify([{ company: 'Acme' }]));
+    expect(calls[3].input).toContain('/rpc/add_sheet_field');
+    expect(calls[3].init?.method).toBe('POST');
+    expect(calls[3].init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', name: 'Domain' }));
+    expect(calls[4].input).toContain('/sheet_abc?select=*');
+    expect(calls[5].input).toContain('/sheet_abc');
+    expect(calls[5].init?.method).toBe('POST');
+    expect(calls[5].init?.body).toBe(JSON.stringify([{ company: 'Acme' }]));
   });
 });

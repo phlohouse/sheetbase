@@ -20,7 +20,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, SheetField, SheetForm } from './api';
+import { addSheetField, createSheetForm, insertRows, listRows, listSheetFields, listSheetForms, SheetField, SheetForm } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status';
@@ -217,11 +217,13 @@ export function App() {
     setSaveMessage('Saving');
 
     try {
+      const existingForm = sheetForm !== null;
       const form = sheetForm ?? await createSheetForm('Companies', headers);
       if (!sheetForm) {
         setSheetForm(form);
       }
-      const fields = await listSheetFields(form.id);
+      const loadedFields = await listSheetFields(form.id);
+      const fields = existingForm ? await ensureFields(form.id, headers, loadedFields) : loadedFields;
       const payload = rowsToPayload(rows, columns, fields);
       if (payload.length > 0) {
         await insertRows(form.generated_table_name, payload);
@@ -485,6 +487,18 @@ function rowsToPayload(rows: Row[], columns: Column[], fields: SheetField[]) {
       return record;
     })
     .filter((record) => Object.keys(record).length > 0);
+}
+
+async function ensureFields(sheetFormId: string, headers: string[], fields: SheetField[]) {
+  const existing = new Set(fields.map((field) => field.name.trim().toLowerCase()));
+  const added: SheetField[] = [];
+  for (const header of headers) {
+    if (!existing.has(header.toLowerCase())) {
+      added.push(await addSheetField(sheetFormId, header));
+      existing.add(header.toLowerCase());
+    }
+  }
+  return [...fields, ...added].sort((left, right) => left.position - right.position);
 }
 
 function columnsFromFields(fields: SheetField[]): Column[] {

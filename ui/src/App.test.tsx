@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
@@ -99,6 +99,58 @@ describe('App', () => {
     expect(screen.getByDisplayValue('acme.test')).toBeTruthy();
     expect(screen.queryByDisplayValue('secret')).toBeNull();
     expect(screen.getByText('Loaded from database')).toBeTruthy();
+  });
+
+  it('adds new fields to an existing Sheet Form before saving rows', async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ input: url, init });
+      if (url.includes('/sheet_forms')) {
+        return new Response(JSON.stringify([{
+          id: 'form-1',
+          slug: 'companies',
+          name: 'Companies',
+          generated_table_name: 'sheet_abc',
+        }]), { status: 200 });
+      }
+      if (url.includes('/rpc/add_sheet_field')) {
+        return new Response(JSON.stringify({
+          name: 'Notes',
+          column_name: 'notes',
+          position: 1,
+          type: 'text',
+          hidden: false,
+        }), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { name: 'Company', column_name: 'company', position: 0, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      if (url.includes('/sheet_abc')) {
+        return new Response(JSON.stringify([
+          { id: 'row-1', company: 'Acme Labs' },
+        ]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+    expect(await screen.findByDisplayValue('Acme Labs')).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText('Add column'));
+    fireEvent.change(screen.getByLabelText('Header 2'), { target: { value: 'Notes' } });
+    fireEvent.change(screen.getAllByLabelText('Notes value')[0], { target: { value: 'Call back' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/rpc/add_sheet_field'))).toBe(true);
+    });
+    const addFieldCall = calls.find((call) => call.input.includes('/rpc/add_sheet_field'));
+    const insertCall = calls.find((call) => call.input.includes('/sheet_abc') && call.init?.method === 'POST');
+    expect(addFieldCall?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', name: 'Notes' }));
+    expect(insertCall?.init?.body).toContain('"notes":"Call back"');
   });
 
   it('imports header columns from a Stencil config', async () => {
