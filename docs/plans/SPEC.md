@@ -81,14 +81,14 @@ V1 keeps schema changes additive. Users can create Sheet Forms, add fields, hide
 - Type Tightening is allowed only when all existing values can be converted safely.
 - V1 supports additive Sheet Form changes only: rename forms, add fields, hide fields, and deprecate fields.
 - V1 does not delete fields with data or arbitrarily change field types.
-- Use Managed Postgres: a real PostgreSQL server installed, initialized, started, stopped, monitored, and restarted by the application binary.
+- Use Managed Postgres: a real PostgreSQL server started, stopped, monitored, and restarted by the application binary through Docker for v1.
 - Support Linux only for v1.
 - Use a Go binary for the server and process supervisor.
 - Embed the built React UI in the Go binary.
-- Manage a local app home directory containing managed binaries, PostgreSQL data, generated PostgREST config, and logs.
+- Manage a local app home directory containing PostgreSQL data, generated PostgREST config, and logs.
 - Provide operational commands: `init`, `serve`, `start`, `stop`, `restart`, and `status`.
-- Download pinned PostgreSQL and PostgREST builds during `init` for v1.
-- Keep offline bundled installs out of v1.
+- Use pinned PostgreSQL and PostgREST Docker images for v1.
+- Keep native/offline bundled installs out of v1.
 - Include local auth in v1.
 - Use email/password users, UI session cookies, JWTs for PostgREST, and PostgreSQL roles/claims for permissions.
 - Keep OAuth and SAML out of v1.

@@ -23,6 +23,7 @@ Useful commands:
 - `make managed-test`: run the `sheetbase start/status/backup/stop` Docker lifecycle
 - `make build`: build `bin/sheetbase`
 - `make linux`: build `bin/sheetbase-linux-amd64`
+- `make release`: build `bin/release/sheetbase-linux-amd64` and its SHA-256 checksum
 - `go run . serve -addr :8080 -postgrest-url http://127.0.0.1:3000`: serve the embedded UI and `/api` proxy
 - `go run . init --home .sheetbase`: create a local Sheetbase home
 - `go run . start --home .sheetbase`: start managed PostgreSQL and PostgREST containers
