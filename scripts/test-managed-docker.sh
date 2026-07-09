@@ -36,6 +36,15 @@ fi
 
 curl --fail --silent "http://127.0.0.1:${postgrest_port}/" >/dev/null
 
+go run . restart --home "$home" --postgres-port "$postgres_port" --postgrest-port "$postgrest_port" >/dev/null
+status="$(go run . status --home "$home" --postgres-port "$postgres_port" --postgrest-port "$postgrest_port")"
+if [[ "$status" != *"postgres: running image=postgres:16-alpine"* ||
+      "$status" != *"postgrest: running image=postgrest/postgrest:v12.2.8"* ]]; then
+  echo "$status" >&2
+  exit 1
+fi
+curl --fail --silent "http://127.0.0.1:${postgrest_port}/" >/dev/null
+
 backup="$home/backups/test.dump"
 go run . backup --home "$home" --postgres-port "$postgres_port" --out "$backup" >/dev/null
 test -s "$backup"
