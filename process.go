@@ -40,6 +40,7 @@ type appPaths struct {
 	postgresData    string
 	postgresLog     string
 	postgrestConfig string
+	sheetbaseConfig string
 	postgrestLog    string
 	postgrestPid    string
 }
@@ -51,6 +52,9 @@ func initApp(args []string) error {
 	}
 	paths := newAppPaths(cfg.home)
 	if err := ensureAppHome(paths); err != nil {
+		return err
+	}
+	if err := writeSheetbaseConfig(paths, cfg); err != nil {
 		return err
 	}
 	if err := writePostgRESTConfig(paths, cfg); err != nil {
@@ -147,7 +151,12 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	if err := flags.Parse(args); err != nil {
 		return appConfig{}, err
 	}
+	visited := map[string]bool{}
+	flags.Visit(func(flag *flag.Flag) {
+		visited[flag.Name] = true
+	})
 	cfg.home = filepath.Clean(cfg.home)
+	cfg = mergeFileConfig(cfg, readConfigFile(newAppPaths(cfg.home).sheetbaseConfig), visited)
 	return cfg, nil
 }
 
@@ -177,6 +186,7 @@ func newAppPaths(home string) appPaths {
 		postgresData:    filepath.Join(home, "data", "postgres"),
 		postgresLog:     filepath.Join(home, "logs", "postgres.log"),
 		postgrestConfig: filepath.Join(home, "config", "postgrest.conf"),
+		sheetbaseConfig: filepath.Join(home, "config", "sheetbase.env"),
 		postgrestLog:    filepath.Join(home, "logs", "postgrest.log"),
 		postgrestPid:    filepath.Join(home, "postgrest.pid"),
 	}
@@ -245,6 +255,52 @@ openapi-mode = "follow-privileges"
 jwt-secret = "%s"
 `, cfg.postgresPort, cfg.postgrestPort, cfg.jwtSecret)
 	return os.WriteFile(paths.postgrestConfig, []byte(config), 0o644)
+}
+
+func writeSheetbaseConfig(paths appPaths, cfg appConfig) error {
+	if _, err := os.Stat(paths.sheetbaseConfig); err == nil {
+		return nil
+	}
+	config := fmt.Sprintf(`SHEETBASE_ADDR=%s
+SHEETBASE_POSTGRES_PORT=%s
+SHEETBASE_POSTGREST_PORT=%s
+SHEETBASE_JWT_SECRET=%s
+`, cfg.appAddr, cfg.postgresPort, cfg.postgrestPort, cfg.jwtSecret)
+	return os.WriteFile(paths.sheetbaseConfig, []byte(config), 0o600)
+}
+
+func readConfigFile(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if ok && key != "" && !strings.HasPrefix(key, "#") {
+			values[key] = value
+		}
+	}
+	return values
+}
+
+func mergeFileConfig(cfg appConfig, values map[string]string, visited map[string]bool) appConfig {
+	if values == nil {
+		return cfg
+	}
+	if !visited["addr"] && os.Getenv("SHEETBASE_ADDR") == "" && values["SHEETBASE_ADDR"] != "" {
+		cfg.appAddr = values["SHEETBASE_ADDR"]
+	}
+	if !visited["postgres-port"] && os.Getenv("SHEETBASE_POSTGRES_PORT") == "" && values["SHEETBASE_POSTGRES_PORT"] != "" {
+		cfg.postgresPort = values["SHEETBASE_POSTGRES_PORT"]
+	}
+	if !visited["postgrest-port"] && os.Getenv("SHEETBASE_POSTGREST_PORT") == "" && values["SHEETBASE_POSTGREST_PORT"] != "" {
+		cfg.postgrestPort = values["SHEETBASE_POSTGREST_PORT"]
+	}
+	if !visited["jwt-secret"] && os.Getenv("SHEETBASE_JWT_SECRET") == "" && values["SHEETBASE_JWT_SECRET"] != "" {
+		cfg.jwtSecret = values["SHEETBASE_JWT_SECRET"]
+	}
+	return cfg
 }
 
 func startPostgREST(paths appPaths, cfg appConfig) error {

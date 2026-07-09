@@ -18,6 +18,7 @@ func TestInitAppCreatesHomeLayoutAndPostgRESTConfig(t *testing.T) {
 
 	for _, path := range []string{
 		filepath.Join(home, "bin"),
+		filepath.Join(home, "backups"),
 		filepath.Join(home, "config"),
 		filepath.Join(home, "logs"),
 		filepath.Join(home, "data", "postgres"),
@@ -47,6 +48,14 @@ func TestInitAppCreatesHomeLayoutAndPostgRESTConfig(t *testing.T) {
 	}
 	if !strings.Contains(text, `jwt-secret = "`) {
 		t.Fatalf("config does not contain JWT secret: %s", text)
+	}
+
+	appConfig, err := os.ReadFile(filepath.Join(home, "config", "sheetbase.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(appConfig), "SHEETBASE_POSTGRES_PORT=55433") {
+		t.Fatalf("app config does not contain postgres port: %s", appConfig)
 	}
 }
 
@@ -92,5 +101,26 @@ func TestParseAppConfigUsesEnvironmentDefaults(t *testing.T) {
 	}
 	if cfg.jwtSecret != "test-secret" {
 		t.Fatalf("jwtSecret = %q", cfg.jwtSecret)
+	}
+}
+
+func TestParseAppConfigReadsFileButKeepsFlagPrecedence(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "sheetbase.env"), []byte("SHEETBASE_ADDR=:9999\nSHEETBASE_POSTGRES_PORT=55555\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := parseAppConfig("status", []string{"--home", home, "--addr", ":7777"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.appAddr != ":7777" {
+		t.Fatalf("appAddr = %q, want flag value", cfg.appAddr)
+	}
+	if cfg.postgresPort != "55555" {
+		t.Fatalf("postgresPort = %q, want file value", cfg.postgresPort)
 	}
 }
