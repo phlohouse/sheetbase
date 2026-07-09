@@ -85,6 +85,18 @@ func startApp(args []string) error {
 	return nil
 }
 
+func migrateApp(args []string) error {
+	cfg, err := parseAppConfig("migrate", args)
+	if err != nil {
+		return err
+	}
+	if err := applyMigrations(newAppPaths(cfg.home), cfg); err != nil {
+		return err
+	}
+	fmt.Println("migrations applied")
+	return nil
+}
+
 func stopApp(args []string) error {
 	cfg, err := parseAppConfig("stop", args)
 	if err != nil {

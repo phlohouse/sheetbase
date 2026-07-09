@@ -49,6 +49,8 @@ func run(args []string) error {
 			return err
 		}
 		return startApp(args[1:])
+	case "migrate":
+		return migrateApp(args[1:])
 	case "status":
 		return statusApp(args[1:])
 	case "systemd":
@@ -107,6 +109,7 @@ Usage:
   sheetbase start [--home DIR]
   sheetbase stop [--home DIR]
   sheetbase restart [--home DIR]
+  sheetbase migrate [--home DIR]
   sheetbase status [--home DIR]
   sheetbase backup [--home DIR] [--out FILE]
   sheetbase restore [--home DIR] --in FILE
@@ -117,6 +120,7 @@ Commands:
   serve   Serve the embedded UI
   start   Start managed PostgreSQL and PostgREST processes
   stop    Stop managed PostgreSQL and PostgREST processes
+  migrate Apply embedded database migrations
   status  Show managed process status
   backup  Write a PostgreSQL custom-format dump
   restore Restore a PostgreSQL custom-format dump

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -113,6 +115,24 @@ func TestCleanAssetPath(t *testing.T) {
 		if got := cleanAssetPath(input); got != want {
 			t.Fatalf("cleanAssetPath(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestUsageMentionsMigrate(t *testing.T) {
+	var output bytes.Buffer
+	stdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writer
+	printUsage()
+	_ = writer.Close()
+	os.Stdout = stdout
+	_, _ = output.ReadFrom(reader)
+
+	if !strings.Contains(output.String(), "sheetbase migrate") {
+		t.Fatalf("usage missing migrate:\n%s", output.String())
 	}
 }
 
