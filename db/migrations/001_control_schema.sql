@@ -1,5 +1,13 @@
 create extension if not exists pgcrypto;
 
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'sheetbase_api') then
+    create role sheetbase_api nologin;
+  end if;
+end;
+$$;
+
 create table if not exists sheet_forms (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique,
@@ -137,6 +145,8 @@ $$;
 create or replace function create_sheet_form(name text, headers text[])
 returns sheet_forms
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   form_row sheet_forms;
@@ -185,6 +195,9 @@ begin
   insert into sheet_views (sheet_form_id, name)
   values (form_row.id, 'Default');
 
+  execute format('grant select, insert, update, delete on table %I to sheetbase_api', form_row.generated_table_name);
+  perform pg_notify('pgrst', 'reload schema');
+
   return form_row;
 end;
 $$;
@@ -192,6 +205,8 @@ $$;
 create or replace function add_sheet_field(sheet_form_id uuid, name text)
 returns sheet_fields
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   form_row sheet_forms;
@@ -227,6 +242,8 @@ begin
   values (form_row.id, trim(name), column_name, next_position)
   returning * into field_row;
 
+  perform pg_notify('pgrst', 'reload schema');
+
   return field_row;
 end;
 $$;
@@ -234,6 +251,8 @@ $$;
 create or replace function hide_sheet_field(sheet_form_id uuid, field_id uuid)
 returns sheet_fields
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   field_row sheet_fields;
@@ -255,6 +274,8 @@ $$;
 create or replace function tighten_sheet_field_type(sheet_form_id uuid, field_id uuid, target_type text)
 returns sheet_fields
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   form_row sheet_forms;
@@ -310,6 +331,15 @@ begin
   where id = field_row.id
   returning * into field_row;
 
+  perform pg_notify('pgrst', 'reload schema');
+
   return field_row;
 end;
 $$;
+
+grant usage on schema public to sheetbase_api;
+grant select, insert, update, delete on sheet_forms, sheet_fields, sheet_views, users, roles, permissions to sheetbase_api;
+grant execute on function create_sheet_form(text, text[]) to sheetbase_api;
+grant execute on function add_sheet_field(uuid, text) to sheetbase_api;
+grant execute on function hide_sheet_field(uuid, uuid) to sheetbase_api;
+grant execute on function tighten_sheet_field_type(uuid, uuid, text) to sheetbase_api;

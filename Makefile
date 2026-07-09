@@ -1,4 +1,4 @@
-.PHONY: build db-test test serve ui-build
+.PHONY: api-test build db-test test serve ui-build
 
 build: ui-build
 	go build -o bin/sheetbase .
@@ -9,6 +9,9 @@ test: ui-build
 
 db-test:
 	./scripts/test-postgres.sh
+
+api-test:
+	./scripts/test-postgrest.sh
 
 serve: ui-build
 	go run . serve
