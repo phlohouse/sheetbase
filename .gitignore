@@ -1,4 +1,6 @@
 bin/
+.sheetbase/
+docs/plans/
 ui/node_modules/
 ui/*.tsbuildinfo
 ui/vite.config.d.ts

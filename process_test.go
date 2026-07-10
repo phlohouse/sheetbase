@@ -135,3 +135,22 @@ func TestDockerContainerStatusLine(t *testing.T) {
 		t.Fatalf("running line = %q", got)
 	}
 }
+
+func TestStatusWritesOperatorLog(t *testing.T) {
+	home := t.TempDir()
+
+	if err := statusApp([]string{"--home", home, "--addr", "127.0.0.1:1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, "logs", "sheetbase.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{`msg="command started"`, "command=status", `msg="command completed"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("operator log missing %q:\n%s", want, text)
+		}
+	}
+}

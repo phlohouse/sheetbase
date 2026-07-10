@@ -1,4 +1,4 @@
-.PHONY: api-test app-test build db-test linux managed-test release test serve ui-build
+.PHONY: api-test app-test build db-test linux managed-test release release-smoke serve test ui-build verify
 
 build: ui-build
 	go build -o bin/sheetbase .
@@ -9,6 +9,8 @@ linux: ui-build
 test: ui-build
 	cd ui && npm test
 	go test ./...
+
+verify: test db-test api-test app-test managed-test release-smoke
 
 db-test:
 	./scripts/test-postgres.sh
@@ -24,6 +26,9 @@ managed-test:
 
 release:
 	./scripts/release-linux.sh
+
+release-smoke:
+	./scripts/test-release-smoke.sh
 
 serve: ui-build
 	go run . serve

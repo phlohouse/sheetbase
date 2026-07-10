@@ -22,7 +22,7 @@ Sheetbase creates one PostgreSQL table for the Sheet Form and stores rows there.
 
 ## Change Fields
 
-- Add a field with the `+` button in the filter bar, then save.
+- Add a field with `Add column`, then save.
 - Hide a field with the header hide button. Data stays in PostgreSQL.
 - Change a saved field type with the header type selector. Sheetbase rejects unsafe conversions.
 - Import a `.stencil.yaml` config to seed Header Row fields without importing workbook data.

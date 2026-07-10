@@ -17,13 +17,16 @@ Useful commands:
 
 - `make ui-build`: build the React UI into `ui/dist`
 - `make test`: build the UI and run Go tests
+- `make verify`: run unit, Docker, app/auth, managed lifecycle, and release smoke checks
 - `make db-test`: run PostgreSQL schema tests in Docker
 - `make api-test`: run a PostgREST integration test in Docker
 - `make app-test`: run a Docker-backed app/auth/proxy integration test
 - `make managed-test`: run the `sheetbase start/status/backup/stop` Docker lifecycle
+- `cd ui && npm run smoke:browser`: run the sign-in, Sheet Form save, and API query browser smoke against a running app
 - `make build`: build `bin/sheetbase`
 - `make linux`: build `bin/sheetbase-linux-amd64`
 - `make release`: build `bin/release/sheetbase-linux-amd64` and its SHA-256 checksum
+- `make release-smoke`: build the release binary and smoke-test its embedded UI
 - `go run . serve --home .sheetbase -addr :8080`: serve the embedded UI and `/api` proxy
 - `go run . init --home .sheetbase`: create a local Sheetbase home
 - `go run . start --home .sheetbase`: start managed PostgreSQL and PostgREST containers

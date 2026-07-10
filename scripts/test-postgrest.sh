@@ -24,14 +24,21 @@ docker run \
   --volume "$PWD:/work:ro" \
   postgres:16-alpine >/dev/null
 
+postgres_ready="no"
 for _ in $(seq 1 40); do
-  if docker exec "$postgres" pg_isready -U postgres >/dev/null 2>&1; then
+  if docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'select 1' >/dev/null 2>&1; then
+    postgres_ready="yes"
     break
   fi
   sleep 0.5
 done
+if [[ "$postgres_ready" != "yes" ]]; then
+  docker logs "$postgres" >&2 || true
+  echo "Postgres did not become query-ready" >&2
+  exit 1
+fi
 
-docker exec "$postgres" pg_isready -U postgres >/dev/null
+docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'select 1' >/dev/null
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/001_control_schema.sql >/dev/null
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c \
   "insert into users (id, email, password_hash) values ('$user_id', 'api@example.com', 'hash')" >/dev/null

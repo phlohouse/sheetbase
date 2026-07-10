@@ -158,6 +158,17 @@ func setupAppLogging(paths appPaths) error {
 	return nil
 }
 
+func beginCommandLog(command string, paths appPaths) func(*error) {
+	slog.Info("command started", "command", command, "home", paths.home)
+	return func(err *error) {
+		if err != nil && *err != nil {
+			slog.Error("command failed", "command", command, "home", paths.home, "error", (*err).Error())
+			return
+		}
+		slog.Info("command completed", "command", command, "home", paths.home)
+	}
+}
+
 func hasFlag(args []string, name string) bool {
 	for _, arg := range args {
 		if arg == "-"+name || arg == "--"+name || strings.HasPrefix(arg, "-"+name+"=") || strings.HasPrefix(arg, "--"+name+"=") {

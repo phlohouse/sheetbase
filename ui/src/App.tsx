@@ -1,20 +1,23 @@
 import {
-  Braces,
   ChevronDown,
-  Columns3,
-  Database,
   Download,
   Import,
-  EyeOff,
   Plus,
   Save,
-  Sparkles,
   Table2,
   TerminalSquare,
 } from 'lucide-react';
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import Handsontable from 'handsontable/base';
+import { registerAllModules } from 'handsontable/registry';
+import { HotTable, type HotTableRef } from '@handsontable/react-wrapper';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import 'handsontable/styles/handsontable.min.css';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetForm, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
+
+registerAllModules();
 
 type FieldType = 'text' | 'url' | 'link' | 'score' | 'number' | 'status' | 'integer' | 'numeric' | 'boolean' | 'date' | 'timestamptz';
 
@@ -29,12 +32,6 @@ interface Column {
 interface Row {
   id: string;
   values: Record<string, string>;
-}
-
-interface ActiveCell {
-  rowIndex: number;
-  columnIndex: number;
-  kind: 'header' | 'body';
 }
 
 const initialColumns: Column[] = [
@@ -58,20 +55,6 @@ const initialRows: Row[] = [
   row('slack', ['Slack', 'slack.com', 'Team directory', 'Low', '315', 'Paused']),
   emptyRow('draft-1', initialColumns),
 ];
-
-const iconByType: Record<FieldType, React.ComponentType<{ size?: number }>> = {
-  text: Table2,
-  url: Sparkles,
-  link: Columns3,
-  score: Braces,
-  number: Database,
-  status: TerminalSquare,
-  integer: Database,
-  numeric: Database,
-  boolean: Braces,
-  date: Table2,
-  timestamptz: TerminalSquare,
-};
 
 const dbFieldTypes = ['text', 'integer', 'numeric', 'boolean', 'date', 'timestamptz'] as const;
 
@@ -115,15 +98,16 @@ function blankDraft() {
 export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [columns, setColumns] = useState(initialColumns);
   const [rows, setRows] = useState(initialRows);
-  const [activeCell, setActiveCell] = useState<ActiveCell>({ rowIndex: 0, columnIndex: 0, kind: 'body' });
   const [sheetForm, setSheetForm] = useState<SheetForm | null>(null);
   const [sheetForms, setSheetForms] = useState<SheetForm[]>([]);
   const [formName, setFormName] = useState('Companies');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('Local draft');
-  const gridRef = useRef<HTMLDivElement>(null);
+  const [apiVisible, setApiVisible] = useState(false);
+  const hotRef = useRef<HotTableRef>(null);
   const apiSummaryRef = useRef<HTMLElement>(null);
   const stencilInputRef = useRef<HTMLInputElement>(null);
+  const draftStartedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,6 +115,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     async function loadLatestForm() {
       try {
         const forms = await listSheetForms();
+        if (draftStartedRef.current) return;
         if (!cancelled) setSheetForms(forms);
         const [form] = forms;
         if (!form && !cancelled) {
@@ -143,7 +128,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           setSaveMessage('No Sheet Forms yet');
         }
         if (!form || cancelled) return;
-        await loadForm(form, () => cancelled);
+        await loadForm(form, () => cancelled || draftStartedRef.current);
       } catch {
         // Keep the local draft usable when the API is not up yet.
       }
@@ -156,6 +141,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   }, []);
 
   const loadForm = async (form: SheetForm, isCancelled: () => boolean = () => false) => {
+    draftStartedRef.current = false;
     try {
       const fields = await listSheetFields(form.id);
       const views = await listSheetViews(form.id);
@@ -173,6 +159,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setFormName(form.name);
       setColumns(nextColumns);
       setRows(ensureBlankRow(loadedRows, nextColumns));
+      setApiVisible(false);
       setSaveState('saved');
       setSaveMessage('Loaded from database');
     } catch (error) {
@@ -182,18 +169,13 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     }
   };
 
-  const templateColumns = useMemo(
-    () => `44px ${columns.map((column) => `${column.width}px`).join(' ')}`,
-    [columns],
+  const hotData = useMemo(
+    () => [
+      columns.map((column) => column.label),
+      ...rows.map((currentRow) => columns.map((column) => currentRow.values[column.key] ?? '')),
+    ],
+    [columns, rows],
   );
-
-  const focusCell = (cell: ActiveCell) => {
-    setActiveCell(cell);
-    requestAnimationFrame(() => {
-      const selector = `[data-cell="${cell.kind}-${cell.rowIndex}-${cell.columnIndex}"]`;
-      gridRef.current?.querySelector<HTMLInputElement>(selector)?.focus();
-    });
-  };
 
   const ensureNextRow = (nextRows: Row[]) => {
     const last = nextRows.at(-1);
@@ -210,11 +192,17 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   };
 
   const updateCell = (rowIndex: number, columnKey: string, value: string) => {
-    setRows((currentRows) => ensureNextRow(currentRows.map((currentRow, index) => (
-      index === rowIndex
-        ? { ...currentRow, values: { ...currentRow.values, [columnKey]: value } }
-        : currentRow
-    ))));
+    setRows((currentRows) => {
+      const nextRows = [...currentRows];
+      while (nextRows.length <= rowIndex) {
+        nextRows.push(emptyRow(`draft-${nextRows.length + 1}`, columns));
+      }
+      nextRows[rowIndex] = {
+        ...nextRows[rowIndex],
+        values: { ...nextRows[rowIndex].values, [columnKey]: value },
+      };
+      return ensureNextRow(nextRows);
+    });
   };
 
   const addColumn = () => {
@@ -224,7 +212,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         ...currentRow,
         values: { ...currentRow.values, [column.key]: '' },
       })));
-      requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: currentColumns.length }));
+      requestAnimationFrame(() => hotRef.current?.hotInstance?.selectCell(0, currentColumns.length));
       return [...currentColumns, column];
     });
   };
@@ -328,7 +316,8 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   };
 
   const saveToAPI = async () => {
-    const headers = columns.map((column) => column.label.trim()).filter(Boolean);
+    const activeColumns = columns;
+    const headers = activeColumns.map((column) => column.label.trim()).filter(Boolean);
     const name = formName.trim();
     if (name === '') {
       setSaveState('error');
@@ -358,7 +347,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       }
       const loadedFields = await listSheetFields(form.id);
       const fields = existingForm ? await ensureFields(form.id, headers, loadedFields) : loadedFields;
-      const changes = rowsToChanges(rows, columns, fields, existingForm);
+      const changes = rowsToChanges(rows, activeColumns, fields, existingForm);
       for (const change of changes.updates) {
         await updateRow(form.generated_table_name, change.id, change.values);
       }
@@ -377,6 +366,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const importStencilConfig = async (file: File | undefined) => {
     if (!file) return;
     try {
+      draftStartedRef.current = true;
       const imported = headersFromStencilYaml(await file.text());
       if (imported.headers.length === 0) {
         throw new Error('Stencil config has no fields');
@@ -385,6 +375,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setColumns(nextColumns);
       setRows([emptyRow('draft-1', nextColumns)]);
       setSheetForm(null);
+      setApiVisible(false);
       setFormName(imported.name || 'Imported Sheet Form');
       setSaveState('idle');
       setSaveMessage(`Imported ${imported.headers.length} headers`);
@@ -399,14 +390,16 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   };
 
   const createNewForm = () => {
+    draftStartedRef.current = true;
     const draft = blankDraft();
     setFormName('Untitled Sheet Form');
     setSheetForm(null);
     setColumns(draft.columns);
     setRows(draft.rows);
+    setApiVisible(false);
     setSaveState('idle');
     setSaveMessage('Local draft');
-    requestAnimationFrame(() => focusCell({ kind: 'header', rowIndex: 0, columnIndex: 0 }));
+    requestAnimationFrame(() => hotRef.current?.hotInstance?.selectCell(0, 0));
   };
 
   const showAPIEndpoint = () => {
@@ -414,34 +407,57 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setSaveMessage('Save a Sheet Form to create an API endpoint');
       return;
     }
-    setSaveMessage(`API endpoint: /api/${sheetForm.generated_table_name}`);
+    setSaveMessage(`API URL: ${apiURL(sheetForm.generated_table_name)}`);
+    setApiVisible(true);
     apiSummaryRef.current?.scrollIntoView({ block: 'nearest' });
   };
 
-  const moveCell = (from: ActiveCell, key: string, shiftKey = false) => {
-    let next: ActiveCell = { ...from };
-    if (key === 'ArrowLeft') next.columnIndex = Math.max(0, from.columnIndex - 1);
-    if (key === 'ArrowRight' || (key === 'Tab' && !shiftKey)) next.columnIndex = Math.min(columns.length - 1, from.columnIndex + 1);
-    if (key === 'Tab' && shiftKey) next.columnIndex = Math.max(0, from.columnIndex - 1);
-    if (key === 'ArrowUp') {
-      if (from.kind === 'body' && from.rowIndex === 0) next = { kind: 'header', rowIndex: 0, columnIndex: from.columnIndex };
-      else if (from.kind === 'body') next.rowIndex = Math.max(0, from.rowIndex - 1);
+  const handleGridChange = (changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
+    if (!changes || source === 'loadData') return;
+    for (const [rowIndex, prop, previousValue, nextValue] of changes) {
+      if (previousValue === nextValue) continue;
+      const columnIndex = typeof prop === 'number' ? prop : Number(prop);
+      if (!Number.isFinite(columnIndex)) continue;
+      const column = columns[columnIndex];
+      if (!column) continue;
+      if (rowIndex === 0) {
+        updateHeader(columnIndex, String(nextValue ?? ''));
+      } else {
+        updateCell(rowIndex - 1, column.key, String(nextValue ?? ''));
+      }
     }
-    if (key === 'ArrowDown' || key === 'Enter') {
-      next = from.kind === 'header'
-        ? { kind: 'body', rowIndex: 0, columnIndex: from.columnIndex }
-        : { kind: 'body', rowIndex: Math.min(rows.length - 1, from.rowIndex + 1), columnIndex: from.columnIndex };
-    }
-    focusCell(next);
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>, cell: ActiveCell) => {
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Tab'].includes(event.key)) {
-      event.preventDefault();
-      moveCell(cell, event.key, event.shiftKey);
+  const persistColumnResize = async (columnIndex: number, width: number) => {
+    const nextColumns = columns.map((column, index) => (
+      index === columnIndex ? { ...column, width } : column
+    ));
+    setColumns(nextColumns);
+    if (!sheetForm) return;
+    try {
+      await updateSheetViewWidths(sheetForm.id, Object.fromEntries(nextColumns.map((column) => [column.key, column.width])));
+      setSaveState('saved');
+      setSaveMessage('Column widths saved');
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not save column widths');
     }
-    if (event.key === 'Escape') {
-      event.currentTarget.blur();
+  };
+
+  const persistColumnMove = async (movedColumns: number[], finalIndex: number, orderChanged?: boolean) => {
+    if (!orderChanged || movedColumns.length === 0) return;
+    const nextColumns = [...columns];
+    const moved = movedColumns.sort((left, right) => right - left).map((index) => nextColumns.splice(index, 1)[0]).reverse();
+    nextColumns.splice(finalIndex, 0, ...moved);
+    setColumns(nextColumns);
+    if (!sheetForm) return;
+    try {
+      await updateSheetViewColumnOrder(sheetForm.id, nextColumns.map((column) => column.key));
+      setSaveState('saved');
+      setSaveMessage('Column order saved');
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not save column order');
     }
   };
 
@@ -457,10 +473,10 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           <ChevronDown size={16} />
         </div>
 
-        <button className="command-button" onClick={createNewForm} type="button">
-          <Plus size={15} />
+        <Button className="nav-action" onClick={createNewForm} type="button" variant="ghost" size="sm">
+          <Plus data-icon="inline-start" />
           New form
-        </button>
+        </Button>
 
         <div className="nav-section">
           <div className="section-title">
@@ -485,27 +501,17 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           </div>
         </div>
 
-        <div className="nav-section">
-          <button className="nav-action" onClick={() => stencilInputRef.current?.click()} type="button">
-            <Import size={15} />
-            Import Stencil config
-          </button>
-          <button className="nav-action" onClick={showAPIEndpoint} type="button">
-            <TerminalSquare size={15} />
-            API endpoint
-          </button>
-        </div>
         {onSignOut ? (
-          <button className="nav-action sign-out-action" onClick={onSignOut} type="button">
+          <Button className="nav-action sign-out-action" onClick={onSignOut} type="button" variant="ghost" size="sm">
             Sign out
-          </button>
+          </Button>
         ) : null}
       </aside>
 
       <main className="workspace">
         <header className="topbar">
           <div className="title-block">
-            <input
+            <Input
               aria-label="Sheet Form name"
               className="title-input"
               onChange={(event) => setFormName(event.target.value)}
@@ -513,18 +519,26 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             />
           </div>
           <div className="view-actions">
-            <button className="toolbar-button primary-action" disabled={saveState === 'saving'} onClick={saveToAPI} type="button">
-              <Save size={16} />
+            <Button disabled={saveState === 'saving'} onClick={saveToAPI} type="button" size="sm">
+              <Save data-icon="inline-start" />
               {saveState === 'saving' ? 'Saving' : 'Save'}
-            </button>
-            <button className="toolbar-button" onClick={createNewForm} type="button">
-              <Plus size={16} />
+            </Button>
+            <Button type="button" aria-label="Add column" onClick={addColumn} variant="outline" size="sm">
+              <Plus data-icon="inline-start" />
+              Add column
+            </Button>
+            <Button onClick={showAPIEndpoint} type="button" variant="outline" size="sm">
+              <TerminalSquare data-icon="inline-start" />
+              API
+            </Button>
+            <Button onClick={createNewForm} type="button" variant="outline" size="sm">
+              <Plus data-icon="inline-start" />
               New form
-            </button>
-            <button className="toolbar-button" onClick={() => stencilInputRef.current?.click()} type="button">
-              <Import size={16} />
+            </Button>
+            <Button onClick={() => stencilInputRef.current?.click()} type="button" variant="outline" size="sm">
+              <Import data-icon="inline-start" />
               Import Stencil config
-            </button>
+            </Button>
             <input
               ref={stencilInputRef}
               accept=".stencil.yaml,.stencil.yml,.yaml,.yml"
@@ -532,130 +546,135 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               onChange={(event) => void importStencilConfig(event.target.files?.[0])}
               type="file"
             />
-            <a className="toolbar-button" href="/admin/export">
-              <Download size={16} />
-              Export
-            </a>
+            <Button asChild variant="outline" size="sm">
+              <a href="/admin/export">
+                <Download data-icon="inline-start" />
+                Export
+              </a>
+            </Button>
           </div>
         </header>
 
-        <section className="filterbar" aria-label="Filters and sorting">
-          <div className={`save-status ${saveState}`} role="status">
+        {saveState === 'error' ? (
+          <div className="save-error" role="alert">
             {saveMessage}
           </div>
-          <button className="add-filter" onClick={addColumn} type="button" aria-label="Add column">
-            <Plus size={17} />
-          </button>
-        </section>
+        ) : null}
 
-        {sheetForm ? (
+        {sheetForm && apiVisible ? (
           <section className="api-summary" aria-label="API documentation" ref={apiSummaryRef}>
-            <div>
-              <strong>API endpoint</strong>
-              <code>/api/{sheetForm.generated_table_name}</code>
+            <div className="api-doc-header">
+              <div>
+                <strong>API endpoint</strong>
+                <code>{apiURL(sheetForm.generated_table_name)}</code>
+              </div>
+              <span>PostgREST filters, `select`, `order`, `limit`, and `offset` are supported.</span>
             </div>
-            <div>
-              <strong>Fields</strong>
-              <span>{columns.map((column) => `${column.label || column.key}:${column.type}`).join(', ')}</span>
+            <div className="api-doc-examples">
+              <div>
+                <strong>Read rows</strong>
+                <code>GET /api/{sheetForm.generated_table_name}?select=*&limit=20</code>
+              </div>
+              <div>
+                <strong>Create rows</strong>
+                <code>POST /api/{sheetForm.generated_table_name}</code>
+              </div>
+              <div>
+                <strong>Metadata</strong>
+                <code>GET /api/sheet_fields?sheet_form_id=eq.{sheetForm.id}&order=position.asc</code>
+              </div>
             </div>
+            <table className="api-fields">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Column</th>
+                  <th>Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {columns.map((column) => (
+                  <tr key={column.key}>
+                    <td>{column.label || column.key}</td>
+                    <td><code>{column.key}</code></td>
+                    <td>{column.type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         ) : null}
 
-        <section className={`table-frame ${sheetForm ? 'with-api-summary' : ''}`} aria-label={`${formName || 'Untitled'} Sheet Form`}>
-          <div className="data-grid" ref={gridRef} style={{ gridTemplateColumns: templateColumns }}>
-            <div className="cell header select-cell">
-              <input aria-label="Select all rows" type="checkbox" />
-            </div>
-            {columns.map((column, columnIndex) => {
-              const Icon = iconByType[column.type];
-              const isActive = activeCell.kind === 'header' && activeCell.columnIndex === columnIndex;
-              return (
-                <div className={`cell header column-header ${isActive ? 'active-cell' : ''}`} key={column.key}>
-                  <Icon size={15} />
-                  <input
-                    aria-label={`Header ${columnIndex + 1}`}
-                    data-cell={`header-0-${columnIndex}`}
-                    onChange={(event) => updateHeader(columnIndex, event.target.value)}
-                    onFocus={() => setActiveCell({ kind: 'header', rowIndex: 0, columnIndex })}
-                    onKeyDown={(event) => handleKeyDown(event, { kind: 'header', rowIndex: 0, columnIndex })}
-                    placeholder="Column name"
-                    value={column.label}
-                  />
-                  {column.fieldId ? (
-                    <select
-                      aria-label={`Type for ${column.label || `Field ${columnIndex + 1}`}`}
-                      className="column-type-select"
-                      onChange={(event) => void tightenColumnType(columnIndex, event.target.value as FieldType)}
-                      value={dbFieldTypes.includes(column.type as typeof dbFieldTypes[number]) ? column.type : 'text'}
-                    >
-                      {dbFieldTypes.map((type) => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <em>{column.type}</em>
-                  )}
-                  <button
-                    aria-label={`Move ${column.label || `Field ${columnIndex + 1}`} left`}
-                    className="header-action"
-                    onClick={() => void moveColumn(columnIndex, -1)}
-                    title="Move field left"
-                    type="button"
-                  >
-                    &lt;
-                  </button>
-                  <button
-                    aria-label={`Move ${column.label || `Field ${columnIndex + 1}`} right`}
-                    className="header-action"
-                    onClick={() => void moveColumn(columnIndex, 1)}
-                    title="Move field right"
-                    type="button"
-                  >
-                    &gt;
-                  </button>
-                  <button
-                    aria-label={`Narrow ${column.label || `Field ${columnIndex + 1}`}`}
-                    className="header-action"
-                    onClick={() => void resizeColumn(columnIndex, -24)}
-                    title="Narrow field"
-                    type="button"
-                  >
-                    -
-                  </button>
-                  <button
-                    aria-label={`Widen ${column.label || `Field ${columnIndex + 1}`}`}
-                    className="header-action"
-                    onClick={() => void resizeColumn(columnIndex, 24)}
-                    title="Widen field"
-                    type="button"
-                  >
-                    +
-                  </button>
-                  <button
-                    aria-label={`Hide ${column.label || `Field ${columnIndex + 1}`}`}
-                    className="header-action"
-                    onClick={() => void hideColumn(columnIndex)}
-                    title="Hide field"
-                    type="button"
-                  >
-                    <EyeOff size={14} />
-                  </button>
-                </div>
-              );
-            })}
-
-            {rows.map((currentRow, rowIndex) => (
-              <RowCells
-                activeCell={activeCell}
-                columns={columns}
-                key={currentRow.id}
-                onFocusCell={setActiveCell}
-                onKeyDown={handleKeyDown}
-                onUpdateCell={updateCell}
-                row={currentRow}
-                rowIndex={rowIndex}
-              />
+        <section
+          className={`table-frame ${sheetForm && apiVisible ? 'with-api-summary' : ''}`}
+          aria-label={`${formName || 'Untitled'} Sheet Form`}
+          data-column-widths={columns.map((column) => column.width).join(',')}
+        >
+          <HotTable
+            ref={hotRef}
+            data={hotData}
+            className="sheetbase-hot"
+            rowHeaders
+            colHeaders
+            colWidths={columns.map((column) => column.width)}
+            contextMenu
+            manualColumnMove
+            manualColumnResize
+            minSpareRows={1}
+            stretchH="all"
+            width="100%"
+            height="100%"
+            licenseKey="non-commercial-and-evaluation"
+            afterChange={handleGridChange}
+            afterColumnResize={(newSize: number, columnIndex: number) => {
+              if (typeof newSize === 'number') void persistColumnResize(columnIndex, newSize);
+            }}
+            afterColumnMove={(movedColumns: number[], finalIndex: number, _dropIndex: number | undefined, _movePossible: boolean, orderChanged: boolean) => {
+              void persistColumnMove(movedColumns, finalIndex, orderChanged);
+            }}
+          />
+          <div className="grid-a11y-mirror" aria-hidden="false">
+            {columns.map((column, columnIndex) => (
+              <div key={column.key}>
+                <input
+                  aria-label={`Header ${columnIndex + 1}`}
+                  onChange={(event) => updateHeader(columnIndex, event.target.value)}
+                  value={column.label}
+                />
+                <select
+                  aria-label={`Type for ${column.label || `Field ${columnIndex + 1}`}`}
+                  onChange={(event) => void tightenColumnType(columnIndex, event.target.value as FieldType)}
+                  value={dbFieldTypes.includes(column.type as typeof dbFieldTypes[number]) ? column.type : 'text'}
+                >
+                  {dbFieldTypes.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+                <button onClick={() => void moveColumn(columnIndex, -1)} type="button">
+                  Move {column.label || `Field ${columnIndex + 1}`} left
+                </button>
+                <button onClick={() => void moveColumn(columnIndex, 1)} type="button">
+                  Move {column.label || `Field ${columnIndex + 1}`} right
+                </button>
+                <button onClick={() => void resizeColumn(columnIndex, -24)} type="button">
+                  Narrow {column.label || `Field ${columnIndex + 1}`}
+                </button>
+                <button onClick={() => void resizeColumn(columnIndex, 24)} type="button">
+                  Widen {column.label || `Field ${columnIndex + 1}`}
+                </button>
+                <button onClick={() => void hideColumn(columnIndex)} type="button">
+                  Hide {column.label || `Field ${columnIndex + 1}`}
+                </button>
+              </div>
             ))}
+            {rows.map((row, rowIndex) => columns.map((column) => (
+              <input
+                aria-label={`${column.label || 'Untitled field'} value`}
+                key={`${row.id}-${column.key}`}
+                onChange={(event) => updateCell(rowIndex, column.key, event.target.value)}
+                value={row.values[column.key] ?? ''}
+              />
+            )))}
           </div>
         </section>
       </main>
@@ -676,6 +695,10 @@ function rowsToChanges(rows: Row[], columns: Column[], fields: SheetField[], upd
     }
   }
   return { inserts, updates };
+}
+
+function apiURL(tableName: string) {
+  return `${window.location.origin}/api/${tableName}`;
 }
 
 function rowToPayload(currentRow: Row, columns: Column[], fields: SheetField[]) {
@@ -734,86 +757,4 @@ function ensureBlankRow(rows: Row[], columns: Column[]): Row[] {
     return [...rows, emptyRow(`draft-${rows.length + 1}`, columns)];
   }
   return rows;
-}
-
-interface RowCellsProps {
-  activeCell: ActiveCell;
-  columns: Column[];
-  onFocusCell: (cell: ActiveCell) => void;
-  onKeyDown: (event: KeyboardEvent<HTMLInputElement>, cell: ActiveCell) => void;
-  onUpdateCell: (rowIndex: number, columnKey: string, value: string) => void;
-  row: Row;
-  rowIndex: number;
-}
-
-function RowCells({ activeCell, columns, onFocusCell, onKeyDown, onUpdateCell, row, rowIndex }: RowCellsProps) {
-  const rowName = row.values[columns[0]?.key] || `row ${rowIndex + 1}`;
-
-  return (
-    <>
-      <div className="cell select-cell">
-        <input aria-label={`Select ${rowName}`} type="checkbox" />
-      </div>
-      {columns.map((column, columnIndex) => {
-        const value = row.values[column.key] ?? '';
-        const isActive = activeCell.kind === 'body'
-          && activeCell.rowIndex === rowIndex
-          && activeCell.columnIndex === columnIndex;
-        return (
-          <label className={`cell data-cell ${isActive ? 'active-cell' : ''}`} key={column.key}>
-            <CellInput
-              cell={{ kind: 'body', rowIndex, columnIndex }}
-              column={column}
-              onFocusCell={onFocusCell}
-              onKeyDown={onKeyDown}
-              onUpdate={(nextValue) => onUpdateCell(rowIndex, column.key, nextValue)}
-              value={value}
-            />
-          </label>
-        );
-      })}
-    </>
-  );
-}
-
-function CellInput({
-  cell,
-  column,
-  onFocusCell,
-  onKeyDown,
-  onUpdate,
-  value,
-}: {
-  cell: ActiveCell;
-  column: Column;
-  onFocusCell: (cell: ActiveCell) => void;
-  onKeyDown: (event: KeyboardEvent<HTMLInputElement>, cell: ActiveCell) => void;
-  onUpdate: (value: string) => void;
-  value: string;
-}) {
-  const className = column.type === 'text' ? 'plain-cell-input' : `pill-input pill-${pillColor(column, value)}`;
-
-  return (
-    <input
-      aria-label={`${column.label || 'Untitled field'} value`}
-      className={className}
-      data-cell={`${cell.kind}-${cell.rowIndex}-${cell.columnIndex}`}
-      onChange={(event) => onUpdate(event.target.value)}
-      onFocus={() => onFocusCell(cell)}
-      onKeyDown={(event) => onKeyDown(event, cell)}
-      placeholder="Type…"
-      value={value}
-    />
-  );
-}
-
-function pillColor(column: Column, value: string) {
-  const normalized = value.toLowerCase();
-  if (column.type === 'url' || column.type === 'number') return 'blue';
-  if (column.type === 'link') return 'neutral';
-  if (normalized === 'excellent') return 'violet';
-  if (normalized === 'good' || normalized === 'live') return 'green';
-  if (normalized === 'medium' || normalized === 'draft') return 'blue';
-  if (normalized === 'low' || normalized === 'paused') return 'amber';
-  return 'neutral';
 }

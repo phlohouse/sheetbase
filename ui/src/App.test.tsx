@@ -29,17 +29,12 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Export' }).getAttribute('href')).toBe('/admin/export');
   });
 
-  it('moves across cells with Tab and Shift+Tab', async () => {
-    render(<App />);
+  it('renders the Handsontable grid for spreadsheet keyboard navigation', () => {
+    const { container } = render(<App />);
 
-    const company = screen.getAllByLabelText('Company value')[0];
-    const domain = screen.getAllByLabelText('Domain value')[0];
-    company.focus();
-    fireEvent.keyDown(company, { key: 'Tab' });
-    await waitFor(() => expect(document.activeElement).toBe(domain));
-
-    fireEvent.keyDown(domain, { key: 'Tab', shiftKey: true });
-    await waitFor(() => expect(document.activeElement).toBe(company));
+    expect(container.querySelector('.handsontable')).toBeTruthy();
+    expect(screen.getAllByDisplayValue('Company').length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue('Vercel')).toBeTruthy();
   });
 
   it('keeps the sidebar to working actions', async () => {
@@ -52,20 +47,45 @@ describe('App', () => {
     const sidebar = screen.getByLabelText('Workspace navigation');
     fireEvent.click(within(sidebar).getByRole('button', { name: 'New form' }));
     expect(screen.getByDisplayValue('Untitled Sheet Form')).toBeTruthy();
-
-    fireEvent.click(within(sidebar).getByRole('button', { name: 'API endpoint' }));
-    expect(await screen.findByText('Save a Sheet Form to create an API endpoint')).toBeTruthy();
+    expect(within(sidebar).queryByRole('button', { name: 'Show API URL' })).toBeNull();
+    expect(within(sidebar).queryByRole('button', { name: 'Import Stencil config' })).toBeNull();
   });
 
-  it('opens Stencil import from the sidebar', () => {
+  it('opens Stencil import from the toolbar', () => {
     const { container } = render(<App />);
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
     expect(fileInput).toBeTruthy();
     const clickSpy = vi.spyOn(fileInput!, 'click').mockImplementation(() => undefined);
 
-    const sidebar = screen.getByLabelText('Workspace navigation');
-    fireEvent.click(within(sidebar).getByRole('button', { name: 'Import Stencil config' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import Stencil config' }));
     expect(clickSpy).toHaveBeenCalled();
+  });
+
+  it('does not let the initial load overwrite a new draft', async () => {
+    let resolveForms: (response: Response) => void = () => undefined;
+    const formsPromise = new Promise<Response>((resolve) => {
+      resolveForms = resolve;
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes('/sheet_forms')) return formsPromise;
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'New form' })[0]);
+    fireEvent.change(screen.getByLabelText('Sheet Form name'), { target: { value: 'Fresh Draft' } });
+    resolveForms(new Response(JSON.stringify([{
+      id: 'form-1',
+      slug: 'old',
+      name: 'Old Form',
+      generated_table_name: 'sheet_old',
+    }]), { status: 200 }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Fresh Draft')).toBeTruthy();
+    });
+    expect(screen.queryByDisplayValue('Old Form')).toBeNull();
   });
 
   it('saves headers and rows through PostgREST', async () => {
@@ -114,8 +134,7 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('No Sheet Forms yet')).toBeTruthy();
-    expect(screen.getByDisplayValue('Untitled Sheet Form')).toBeTruthy();
+    expect(await screen.findByDisplayValue('Untitled Sheet Form')).toBeTruthy();
     expect(screen.getByLabelText('Header 1')).toBeTruthy();
     expect(screen.queryByDisplayValue('Vercel')).toBeNull();
   });
@@ -200,7 +219,7 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('No Sheet Forms yet')).toBeTruthy();
+    expect(await screen.findByDisplayValue('Untitled Sheet Form')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: 'New form' })[0]);
     fireEvent.change(screen.getByLabelText('Header 1'), { target: { value: 'Company' } });
     fireEvent.change(screen.getAllByLabelText('Company value')[0], { target: { value: 'Acme Labs' } });
@@ -212,9 +231,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(insertAttempts).toBe(2);
     });
-    await waitFor(() => {
-      expect(screen.getByRole('status').textContent).toMatch(/Saved \d+ row/);
-    });
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   });
 
   it('loads the latest Sheet Form from PostgREST', async () => {
@@ -248,7 +265,7 @@ describe('App', () => {
     expect(await screen.findByDisplayValue('Acme Labs')).toBeTruthy();
     expect(screen.getByDisplayValue('acme.test')).toBeTruthy();
     expect(screen.queryByDisplayValue('secret')).toBeNull();
-    expect(screen.getByText('Loaded from database')).toBeTruthy();
+    expect(screen.queryByText('Loaded from database')).toBeNull();
   });
 
   it('shows generated API documentation for the loaded Sheet Form', async () => {
@@ -276,8 +293,15 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('/api/sheet_companies')).toBeTruthy();
-    expect(screen.getByText('Company:text, Rows:integer')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'API' }));
+    expect(await screen.findByText('http://localhost:3000/api/sheet_companies')).toBeTruthy();
+    expect(screen.getByText('GET /api/sheet_companies?select=*&limit=20')).toBeTruthy();
+    expect(screen.getByText('POST /api/sheet_companies')).toBeTruthy();
+    expect(screen.getByText('GET /api/sheet_fields?sheet_form_id=eq.form-1&order=position.asc')).toBeTruthy();
+    const docs = screen.getByLabelText('API documentation');
+    expect(within(docs).getByText('Company')).toBeTruthy();
+    expect(within(docs).getByText('company')).toBeTruthy();
+    expect(within(docs).getByText('integer')).toBeTruthy();
   });
 
   it('loads and saves column widths through the default Sheet View', async () => {
@@ -323,7 +347,7 @@ describe('App', () => {
     const { container } = render(<App />);
 
     expect(await screen.findByDisplayValue('Acme Labs')).toBeTruthy();
-    expect(container.querySelector<HTMLElement>('.data-grid')?.style.gridTemplateColumns).toContain('300px');
+    expect(container.querySelector<HTMLElement>('.table-frame')?.dataset.columnWidths).toContain('300');
 
     fireEvent.click(screen.getByRole('button', { name: 'Widen Company' }));
 
@@ -332,7 +356,7 @@ describe('App', () => {
     });
     const widthCall = calls.find((call) => call.input.includes('/rpc/update_sheet_view_widths'));
     expect(widthCall?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', widths: { company: 324 } }));
-    expect(await screen.findByText('Column widths saved')).toBeTruthy();
+    expect(container.querySelector<HTMLElement>('.table-frame')?.dataset.columnWidths).toContain('324');
   });
 
   it('loads and saves column order through the default Sheet View', async () => {
@@ -390,7 +414,7 @@ describe('App', () => {
     });
     const orderCall = calls.find((call) => call.input.includes('/rpc/update_sheet_view_column_order'));
     expect(orderCall?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', column_order: ['company', 'rows'] }));
-    expect(await screen.findByText('Column order saved')).toBeTruthy();
+    expect(screen.getByLabelText('Header 2')).toHaveProperty('value', 'Rows');
   });
 
   it('switches between Sheet Forms from the sidebar', async () => {
@@ -478,7 +502,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.queryByDisplayValue('acme.test')).toBeNull();
     });
-    expect(screen.getByText('Field hidden')).toBeTruthy();
+    expect(screen.queryByDisplayValue('acme.test')).toBeNull();
   });
 
   it('tightens an existing field type through PostgREST RPC', async () => {
@@ -530,7 +554,7 @@ describe('App', () => {
       field_id: 'field-2',
       target_type: 'integer',
     }));
-    expect(await screen.findByText('Changed Rows to integer')).toBeTruthy();
+    expect(screen.getByLabelText('Type for Rows')).toHaveProperty('value', 'integer');
   });
 
   it('shows the database error when a field type cannot be tightened safely', async () => {
@@ -713,9 +737,9 @@ versions:
     expect(input).toBeTruthy();
     fireEvent.change(input!, { target: { files: [file] } });
 
-    expect(await screen.findByText('Imported 3 headers')).toBeTruthy();
-    expect(screen.getByDisplayValue('Full Name')).toBeTruthy();
-    expect(screen.getByDisplayValue('Email')).toBeTruthy();
-    expect(screen.getByDisplayValue('Company')).toBeTruthy();
+    expect(await screen.findByDisplayValue('contacts')).toBeTruthy();
+    expect(screen.getAllByDisplayValue('Full Name').length).toBeGreaterThan(0);
+    expect(screen.getAllByDisplayValue('Email').length).toBeGreaterThan(0);
+    expect(screen.getAllByDisplayValue('Company').length).toBeGreaterThan(0);
   });
 });

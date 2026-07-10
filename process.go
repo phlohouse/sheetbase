@@ -60,15 +60,19 @@ func initApp(args []string) error {
 	return nil
 }
 
-func startApp(args []string) error {
+func startApp(args []string) (err error) {
 	cfg, err := parseAppConfig("start", args)
 	if err != nil {
 		return err
 	}
+	paths := newAppPaths(cfg.home)
+	if err := setupAppLogging(paths); err != nil {
+		return err
+	}
+	defer beginCommandLog("start", paths)(&err)
 	if err := requireDockerDaemon(); err != nil {
 		return err
 	}
-	paths := newAppPaths(cfg.home)
 	if err := ensureAppHome(paths); err != nil {
 		return err
 	}
@@ -88,30 +92,39 @@ func startApp(args []string) error {
 	return nil
 }
 
-func migrateApp(args []string) error {
+func migrateApp(args []string) (err error) {
 	cfg, err := parseAppConfig("migrate", args)
 	if err != nil {
 		return err
 	}
+	paths := newAppPaths(cfg.home)
+	if err := setupAppLogging(paths); err != nil {
+		return err
+	}
+	defer beginCommandLog("migrate", paths)(&err)
 	if err := requireDockerDaemon(); err != nil {
 		return err
 	}
-	if err := applyMigrations(newAppPaths(cfg.home), cfg); err != nil {
+	if err := applyMigrations(paths, cfg); err != nil {
 		return err
 	}
 	fmt.Println("migrations applied")
 	return nil
 }
 
-func stopApp(args []string) error {
+func stopApp(args []string) (err error) {
 	cfg, err := parseAppConfig("stop", args)
 	if err != nil {
 		return err
 	}
+	paths := newAppPaths(cfg.home)
+	if err := setupAppLogging(paths); err != nil {
+		return err
+	}
+	defer beginCommandLog("stop", paths)(&err)
 	if err := requireDockerDaemon(); err != nil {
 		return err
 	}
-	paths := newAppPaths(cfg.home)
 	if err := dockerRm(containerName("postgrest", paths)); err != nil {
 		return err
 	}
@@ -123,12 +136,16 @@ func stopApp(args []string) error {
 	return nil
 }
 
-func statusApp(args []string) error {
+func statusApp(args []string) (err error) {
 	cfg, err := parseAppConfig("status", args)
 	if err != nil {
 		return err
 	}
 	paths := newAppPaths(cfg.home)
+	if err := setupAppLogging(paths); err != nil {
+		return err
+	}
+	defer beginCommandLog("status", paths)(&err)
 	postgres := containerStatus(containerName("postgres", paths))
 	postgrest := containerStatus(containerName("postgrest", paths))
 	fmt.Printf("home: %s\n", paths.home)

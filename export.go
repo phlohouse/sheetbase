@@ -11,15 +11,19 @@ import (
 	"time"
 )
 
-func exportApp(args []string) error {
+func exportApp(args []string) (err error) {
 	cfg, err := parseAppConfig("export", args)
 	if err != nil {
 		return err
 	}
+	paths := newAppPaths(cfg.home)
+	if err := setupAppLogging(paths); err != nil {
+		return err
+	}
+	defer beginCommandLog("export", paths)(&err)
 	if err := requireDockerDaemon(); err != nil {
 		return err
 	}
-	paths := newAppPaths(cfg.home)
 	target := cfg.backupOut
 	if target == "" {
 		target = filepath.Join(paths.backups, "sheetbase-export-"+time.Now().UTC().Format("20060102T150405Z")+".tar.gz")

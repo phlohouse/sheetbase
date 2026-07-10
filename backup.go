@@ -6,15 +6,19 @@ import (
 	"time"
 )
 
-func backupApp(args []string) error {
+func backupApp(args []string) (err error) {
 	cfg, err := parseAppConfig("backup", args)
 	if err != nil {
 		return err
 	}
+	paths := newAppPaths(cfg.home)
+	if err := setupAppLogging(paths); err != nil {
+		return err
+	}
+	defer beginCommandLog("backup", paths)(&err)
 	if err := requireDockerDaemon(); err != nil {
 		return err
 	}
-	paths := newAppPaths(cfg.home)
 
 	if err := ensureAppHome(paths); err != nil {
 		return err
