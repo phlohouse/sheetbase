@@ -311,7 +311,7 @@ button {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
   min-height: 0;
   overflow: hidden;
   padding: 12px 10px 10px;
@@ -324,7 +324,7 @@ button {
   grid-template-columns: 34px 1fr 18px;
   align-items: center;
   gap: 10px;
-  padding: 0 5px 12px;
+  padding: 0 5px 14px;
 }
 
 .mark {
@@ -381,7 +381,22 @@ input:focus-visible {
   flex-direction: column;
 }
 
+.secondary-nav {
+  display: grid;
+  gap: 2px;
+  padding: 10px 0 8px;
+  border-top: 1px solid var(--line);
+}
+
+.secondary-nav-label {
+  padding: 0 9px 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 560;
+}
+
 .nav-action,
+.secondary-nav a,
 .form-list a {
   display: flex;
   align-items: center;
@@ -399,11 +414,19 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.nav-action {
+  justify-content: flex-start;
+  flex: 0 0 auto;
+}
+
 .nav-action:hover,
+.secondary-nav a:hover,
 .form-list a:hover {
   background: var(--surface);
 }
 
+.nav-action.active,
+.secondary-nav a.active,
 .form-list a.active {
   background: var(--surface-selected);
   color: var(--primary-hover);
@@ -411,7 +434,10 @@ input:focus-visible {
 }
 
 .nav-section {
-  gap: 5px;
+  flex: 1;
+  min-height: 0;
+  gap: 3px;
+  padding-top: 10px;
 }
 
 .section-title {
@@ -419,12 +445,20 @@ input:focus-visible {
   align-items: center;
   gap: 7px;
   height: 28px;
-  padding: 0 8px;
+  padding: 0 9px;
   border: 0;
   background: transparent;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 560;
+}
+
+.new-form-action {
+  color: var(--text-muted);
+}
+
+.new-form-action:hover {
+  color: var(--ink);
 }
 
 .section-count {
@@ -441,6 +475,13 @@ input:focus-visible {
 
 .form-list a span {
   flex: 1;
+}
+
+.form-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .form-list a em {
@@ -889,9 +930,60 @@ input:focus-visible {
   border-top: 1px solid var(--line);
 }
 
+.api-keys-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px 32px;
+  background: var(--surface);
+}
+
+.api-keys-page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  max-width: 960px;
+  margin: 0 auto 24px;
+}
+
+.api-keys-page-heading h1 { margin: 0 0 5px; font-size: 20px; line-height: 26px; }
+.api-keys-page-heading p,
+.api-key-create-panel p,
+.api-key-empty p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 18px; }
+.api-keys-page-heading > span { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 580; }
+.api-keys-page-heading > span.open { background: var(--pill-green); color: var(--pill-green-ink); }
+.api-keys-page-heading > span.protected { background: var(--primary-soft); color: var(--primary-hover); }
+
+.api-key-create-panel {
+  display: grid;
+  gap: 14px;
+  max-width: 960px;
+  margin: 0 auto 16px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+}
+
+.api-key-create-panel > div:first-child { display: grid; gap: 2px; }
+.api-key-create-panel strong { font-size: 13px; font-weight: 620; }
+.api-key-create-panel .api-key-create { flex-wrap: nowrap; }
+.api-key-create-panel .api-key-create input { width: auto; flex: 1; }
+.api-keys-page > .api-key-reveal,
+.api-keys-page > .api-key-error,
+.api-key-list-heading,
+.api-key-list-page { max-width: 960px; margin-right: auto; margin-left: auto; }
+.api-keys-page > .api-key-reveal { margin-bottom: 16px; }
+.api-key-list-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.api-key-list-heading strong { font-size: 12px; font-weight: 620; }
+.api-key-list-heading span { color: var(--text-muted); font-size: 11px; }
+.api-key-list-page { max-height: none; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
+.api-key-list-page .api-key-row { padding: 0 10px; min-height: 44px; }
+.api-key-empty { display: grid; justify-items: center; gap: 4px; padding: 42px 16px; text-align: center; }
+.api-key-empty svg { width: 18px; color: var(--text-muted); }
+.api-key-empty strong { font-size: 13px; }
+
 .api-key-heading,
 .api-key-heading strong,
-.api-key-reveal,
 .api-key-create,
 .api-key-row,
 .api-key-row > div {
@@ -930,59 +1022,206 @@ input:focus-visible {
 }
 
 .api-key-create {
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .api-key-create input {
   width: min(280px, 34vw);
-  height: 32px;
+  height: 28px;
+  border-radius: 7px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .api-key-create select {
-  height: 32px;
-  padding: 0 28px 0 9px;
+  height: 28px;
+  padding: 0 24px 0 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--surface);
   color: var(--ink);
   font-size: 12px;
 }
 
+.api-key-create [data-slot='button'],
+.api-key-access-actions [data-slot='button'],
+.api-key-row-actions [data-slot='button'] {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.api-key-create [data-slot='button'] svg,
+.api-key-access-actions [data-slot='button'] svg,
+.api-key-row-actions [data-slot='button'] svg {
+  width: 13px;
+  height: 13px;
+}
+
+.api-key-create [data-variant='default'],
+.api-key-access-actions [data-variant='default'] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: white;
+}
+
+.api-key-create [data-variant='default']:hover,
+.api-key-access-actions [data-variant='default']:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+  color: white;
+}
+
+.api-key-create [data-variant='outline'],
+.api-key-row-actions [data-variant='outline'] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
 .api-key-create select:focus-visible {
   border-color: var(--focus);
-  outline: 2px solid oklch(0.59 0.2 264 / 0.14);
+  outline: 2px solid oklch(0.59 0.2 264 / 0.18);
+  outline-offset: 0;
+}
+
+.api-key-dataset-popover {
+  z-index: 30;
+  width: 260px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 8px oklch(0.2 0.01 260 / 0.12);
+}
+
+.api-key-dataset-search {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  gap: 7px;
+  padding: 0 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+.api-key-dataset-search svg { width: 13px; color: var(--text-muted); }
+.api-key-dataset-search input { width: 100%; height: 28px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 12px; }
+
+.api-key-dataset-options {
+  max-height: 220px;
+  overflow: auto;
+  padding-top: 4px;
+}
+
+.api-key-dataset-options label {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 8px;
+  padding: 0 7px;
+  border-radius: 5px;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.api-key-dataset-options label:hover { background: var(--surface-muted); }
+.api-key-dataset-options label span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.api-key-dataset-options label > svg { width: 13px; color: var(--primary); }
+.api-key-dataset-options .api-key-all-datasets { min-height: 42px; margin-bottom: 4px; border-bottom: 1px solid var(--line); border-radius: 5px 5px 0 0; }
+.api-key-all-datasets span { display: grid; }
+.api-key-all-datasets strong { font-size: 12px; font-weight: 600; }
+.api-key-all-datasets small { color: var(--text-muted); font-size: 10px; line-height: 14px; }
+
+.api-key-dataset-options input {
+  position: absolute;
+  opacity: 0;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--primary);
 }
 
 .api-key-reveal {
+  display: grid;
   gap: 10px;
-  min-height: 42px;
-  padding: 6px 7px 6px 10px;
+  padding: 10px;
   border: 1px solid oklch(0.86 0.08 90);
   border-radius: 8px;
   background: var(--warning-soft);
 }
 
-.api-key-reveal > div {
-  display: grid;
-  min-width: 118px;
+.api-key-reveal-heading,
+.api-key-reveal-heading > div,
+.api-key-token-field {
+  display: flex;
+  align-items: center;
 }
 
-.api-key-reveal strong,
-.api-key-reveal span {
+.api-key-reveal-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.api-key-reveal-heading > div {
+  gap: 6px;
+}
+
+.api-key-reveal-heading strong,
+.api-key-reveal-heading span {
   font-size: 11px;
 }
 
-.api-key-reveal span {
+.api-key-reveal-heading span {
   color: var(--text-muted);
 }
 
-.api-key-reveal code {
+.api-key-token-field {
+  height: 32px;
+  gap: 7px;
+  padding-left: 9px;
+  border: 1px solid oklch(0.82 0.055 90);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.api-key-token-field > svg {
+  width: 13px;
+  color: var(--text-muted);
+}
+
+.api-key-token-field code {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.api-key-token-field [data-slot='button'],
+.api-key-reveal-heading [data-slot='button'] {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.api-key-token-field [data-slot='button'] {
+  height: 30px;
+  border-left: 1px solid var(--line-strong);
+  border-radius: 0 6px 6px 0;
+}
+
+.api-key-token-field [data-slot='button'] svg,
+.api-key-reveal-heading [data-slot='button'] svg {
+  width: 13px;
+  height: 13px;
 }
 
 .api-key-list {
@@ -997,7 +1236,7 @@ input:focus-visible {
 
 .api-key-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 120px 100px 60px;
+  grid-template-columns: minmax(150px, 1fr) 90px 100px 90px 150px;
   gap: 10px;
   min-height: 34px;
   border-bottom: 1px solid var(--line);
@@ -1025,14 +1264,46 @@ input:focus-visible {
   font-style: normal;
 }
 
-.api-key-row.revoked {
-  opacity: 0.58;
-}
-
-.api-key-row > em,
 .api-key-row > [data-slot='button'] {
   justify-self: end;
 }
+
+.api-key-entry + .api-key-entry { border-top: 1px solid var(--line); }
+.api-key-entry .api-key-row { border-bottom: 0; }
+.api-key-row-actions { justify-content: flex-end; gap: 2px; }
+
+.api-key-access-editor {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-raised);
+}
+
+.api-key-access-editor-heading,
+.api-key-access-tools,
+.api-key-access-actions {
+  display: flex;
+  align-items: center;
+}
+
+.api-key-access-editor-heading { justify-content: space-between; gap: 16px; }
+.api-key-access-editor-heading > div { display: grid; gap: 2px; }
+.api-key-access-editor-heading strong { font-size: 12px; }
+.api-key-access-editor-heading p { margin: 0; color: var(--text-muted); font-size: 11px; }
+.api-key-access-editor-heading > span { color: var(--text-muted); font-size: 11px; }
+.api-key-access-tools { gap: 8px; }
+.api-key-access-tools .api-key-dataset-search { flex: 1; height: 28px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface); }
+.api-key-access-tools select { height: 28px; padding: 0 24px 0 8px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface); color: var(--ink); font-size: 12px; }
+.api-key-access-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); max-height: 190px; overflow: auto; gap: 4px; }
+.api-key-access-grid label { display: flex; align-items: center; min-width: 0; height: 30px; gap: 8px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12px; cursor: pointer; }
+.api-key-access-grid label:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary-hover); }
+.api-key-access-grid .api-key-all-datasets { height: 42px; grid-column: 1 / -1; }
+.api-key-access-grid input { position: absolute; opacity: 0; }
+.api-key-access-grid span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.api-key-access-grid svg { width: 13px; flex: 0 0 auto; }
+.api-key-access-actions { justify-content: flex-end; gap: 4px; }
+.api-key-access-actions > [data-slot='button']:first-child { margin-right: auto; }
 
 .api-key-error {
   color: var(--danger);
@@ -1437,6 +1708,26 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.api-key-list.api-key-list-page {
+  max-height: none;
+  overflow: hidden;
+}
+
+.api-summary [data-slot='button'],
+.api-keys-page [data-slot='button'],
+.api-key-dataset-popover [data-slot='button'] {
+  font-size: 12px !important;
+  font-weight: 550;
+  line-height: 18px !important;
+}
+
+.api-summary [data-slot='button'] svg,
+.api-keys-page [data-slot='button'] svg,
+.api-key-dataset-popover [data-slot='button'] svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
 input[type='checkbox'] {
   width: 18px;
   height: 18px;
@@ -1489,11 +1780,11 @@ input[type='checkbox'] {
   }
 
   .app-shell {
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
   }
 
   .sidebar {
-    padding-inline: 10px;
+    padding: 10px 8px 8px;
   }
 
   .workspace-switcher {
@@ -1501,29 +1792,49 @@ input[type='checkbox'] {
     padding-inline: 0;
   }
 
+  .workspace-switcher .mark {
+    width: 32px;
+    height: 32px;
+    margin-inline: auto;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink);
+  }
+
+  .workspace-switcher .mark svg {
+    display: block;
+    width: 17px;
+    height: 17px;
+  }
+
   .workspace-switcher div:not(.mark),
   .workspace-switcher svg,
+  .secondary-nav a span,
+  .secondary-nav-label,
+  .new-form-action span,
   .form-list a span,
   .form-list a em,
   .section-title {
     display: none;
   }
 
+  .secondary-nav a,
+  .new-form-action,
   .form-list a {
     justify-content: center;
     padding: 0;
     font-size: 0;
   }
 
-  .sidebar > .nav-action {
-    justify-content: center;
-    padding: 0;
-    font-size: 0;
-  }
-
-  .sidebar > .nav-action svg {
+  .secondary-nav a svg,
+  .new-form-action svg,
+  .form-list a svg {
     width: 17px;
     height: 17px;
+  }
+
+  .secondary-nav {
+    padding: 8px 0;
   }
 
   .workspace-health {
@@ -1547,9 +1858,22 @@ input[type='checkbox'] {
     height: 17px;
   }
 
-  .form-list a svg {
-    width: 17px;
-    height: 17px;
+  .nav-section {
+    padding-top: 8px;
+  }
+
+  .api-keys-page {
+    padding: 24px 16px;
+  }
+
+  .api-key-create-panel .api-key-create {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .api-key-create-panel .api-key-create > [data-slot='input'] {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .topbar {

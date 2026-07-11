@@ -428,8 +428,8 @@ describe('App', () => {
     fireEvent.click(within(docs).getByRole('button', { name: 'Copy API endpoint' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://localhost:3000/api/sheet_companies'));
     await waitFor(() => expect(within(docs).getByText('Copied')).toBeTruthy());
-    fireEvent.click(within(docs).getByRole('button', { name: 'Copy read rows request' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('curl -H "X-API-Key: $SHEETBASE_API_KEY" "http://localhost:3000/api/sheet_companies?select=*&limit=20"'));
+    fireEvent.click(within(docs).getByRole('button', { name: 'Copy read rows URL' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://localhost:3000/api/sheet_companies?select=*&limit=20'));
     fireEvent.click(apiButton);
     expect(screen.queryByLabelText('API documentation')).toBeNull();
     expect(apiButton.getAttribute('aria-expanded')).toBe('false');

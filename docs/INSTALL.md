@@ -81,3 +81,10 @@ sheetbase upgrade --home /var/lib/sheetbase
 ```sh
 sheetbase stop --home /var/lib/sheetbase
 ```
+
+## See Also
+
+- [CLI Reference](CLI.md) — every command, flag, and env var
+- [Architecture](ARCHITECTURE.md) — system components, request flow, data model
+- [API Reference](API.md) — auth endpoints, API keys, PostgREST query syntax
+- [Usage Guide](USAGE.md) — creating Sheet Forms, entering data, using the API

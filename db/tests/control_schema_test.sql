@@ -4,6 +4,8 @@ begin;
 
 \i /work/db/migrations/001_control_schema.sql
 \i /work/db/migrations/002_api_keys.sql
+\i /work/db/migrations/003_open_api_without_keys.sql
+\i /work/db/migrations/004_api_key_all_datasets.sql
 
 insert into users (id, email, password_hash)
 values

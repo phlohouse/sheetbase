@@ -2,10 +2,14 @@ export interface APIKeyRecord {
   id: string;
   name: string;
   token_prefix: string;
-  sheet_form_id: string;
-  sheet_form_name: string;
-  can_read: boolean;
-  can_write: boolean;
+  permissions: Array<{
+    sheet_form_id: string;
+    sheet_form_name: string;
+    can_read: boolean;
+    can_write: boolean;
+  }>;
+  all_sheet_forms: boolean;
+  can_write_all: boolean;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
@@ -26,14 +30,22 @@ export function listAPIKeys(): Promise<APIKeyRecord[]> {
   return adminRequest('/admin/api-keys');
 }
 
-export function createAPIKey(name: string, sheetFormId: string, canWrite: boolean): Promise<CreatedAPIKey> {
+export function createAPIKey(name: string, sheetFormIds: string[], canWrite: boolean, allSheetForms = false): Promise<CreatedAPIKey> {
   return adminRequest('/admin/api-keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, sheet_form_id: sheetFormId, can_read: true, can_write: canWrite }),
+    body: JSON.stringify({ name, sheet_form_ids: sheetFormIds, can_write: canWrite, all_sheet_forms: allSheetForms }),
   });
 }
 
 export function revokeAPIKey(id: string): Promise<void> {
   return adminRequest(`/admin/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export function updateAPIKeyAccess(id: string, sheetFormIds: string[], canWrite: boolean, allSheetForms = false): Promise<void> {
+  return adminRequest(`/admin/api-keys/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sheet_form_ids: sheetFormIds, can_write: canWrite, all_sheet_forms: allSheetForms }),
+  });
 }

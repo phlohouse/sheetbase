@@ -15,6 +15,7 @@ import {
   Moon,
   Plus,
   Save,
+  Search,
   Sun,
   Table2,
   TerminalSquare,
@@ -25,12 +26,13 @@ import Handsontable from 'handsontable/base';
 import { registerAllModules } from 'handsontable/registry';
 import { HotTable, type HotTableRef } from '@handsontable/react-wrapper';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Popover } from 'radix-ui';
 import 'handsontable/styles/handsontable.min.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { addSheetField, createSheetForm, deleteRow, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetField, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
-import { createAPIKey, listAPIKeys, revokeAPIKey, type APIKeyRecord } from './api-keys';
+import { createAPIKey, listAPIKeys, revokeAPIKey, updateAPIKeyAccess, type APIKeyRecord } from './api-keys';
 
 registerAllModules();
 
@@ -141,11 +143,21 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [saveMessage, setSaveMessage] = useState('Local draft');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
   const [apiVisible, setApiVisible] = useState(() => window.location.hash === '#api');
+  const [apiKeysPage, setAPIKeysPage] = useState(() => window.location.hash === '#api-keys');
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
   const [slugDraft, setSlugDraft] = useState('');
   const [apiKeys, setAPIKeys] = useState<APIKeyRecord[]>([]);
   const [apiKeyName, setAPIKeyName] = useState('');
   const [apiKeyCanWrite, setAPIKeyCanWrite] = useState(false);
+  const [apiKeySheetFormIds, setAPIKeySheetFormIds] = useState<string[]>([]);
+  const [apiKeyAllSheetForms, setAPIKeyAllSheetForms] = useState(false);
+  const [apiKeyDatasetQuery, setAPIKeyDatasetQuery] = useState('');
+  const [editingAPIKeyID, setEditingAPIKeyID] = useState<string | null>(null);
+  const [editingAPIKeySheetFormIds, setEditingAPIKeySheetFormIds] = useState<string[]>([]);
+  const [editingAPIKeyCanWrite, setEditingAPIKeyCanWrite] = useState(false);
+  const [editingAPIKeyAllSheetForms, setEditingAPIKeyAllSheetForms] = useState(false);
+  const [editingAPIKeyQuery, setEditingAPIKeyQuery] = useState('');
+  const [editingAPIKeySaving, setEditingAPIKeySaving] = useState(false);
   const [apiKeyState, setAPIKeyState] = useState<'idle' | 'loading' | 'saving' | 'error'>('idle');
   const [apiKeyError, setAPIKeyError] = useState('');
   const [newAPIKeyToken, setNewAPIKeyToken] = useState('');
@@ -210,16 +222,17 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   useEffect(() => {
     setSlugDraft(sheetForm?.slug ?? '');
     setAPIKeyName(sheetForm ? `${sheetForm.name} integration` : '');
+    setAPIKeySheetFormIds(sheetForm ? [sheetForm.id] : []);
     setNewAPIKeyToken('');
   }, [sheetForm?.id, sheetForm?.slug]);
 
   useEffect(() => {
-    if (!apiVisible || !sheetForm) return;
+    if ((!apiVisible && !apiKeysPage) || !sheetForm) return;
     let cancelled = false;
     setAPIKeyState('loading');
     void listAPIKeys().then((keys) => {
       if (cancelled) return;
-      setAPIKeys(keys.filter((key) => key.sheet_form_id === sheetForm.id));
+      setAPIKeys(keys);
       setAPIKeyState('idle');
     }).catch((error) => {
       if (cancelled) return;
@@ -227,7 +240,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setAPIKeyState('error');
     });
     return () => { cancelled = true; };
-  }, [apiVisible, sheetForm?.id]);
+  }, [apiVisible, apiKeysPage, sheetForm?.id]);
 
   useEffect(() => {
     if (headerEditor) headerInputRef.current?.focus();
@@ -644,6 +657,8 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     setColumns(draft.columns);
     setRows(draft.rows);
     setApiVisible(false);
+    setAPIKeysPage(false);
+    window.history.replaceState(null, '', window.location.pathname);
     setActiveFieldIndex(null);
     setSaveState('idle');
     setSaveMessage('Local draft');
@@ -699,10 +714,12 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     setAPIKeyState('saving');
     setAPIKeyError('');
     try {
-      const key = await createAPIKey(apiKeyName.trim(), sheetForm.id, apiKeyCanWrite);
+      const key = await createAPIKey(apiKeyName.trim(), apiKeySheetFormIds, apiKeyCanWrite, apiKeyAllSheetForms);
       setAPIKeys((current) => [key, ...current]);
       setNewAPIKeyToken(key.token);
       setAPIKeyName(`${sheetForm.name} integration`);
+      setAPIKeySheetFormIds([sheetForm.id]);
+      setAPIKeyAllSheetForms(false);
       setAPIKeyState('idle');
     } catch (error) {
       setAPIKeyError(error instanceof Error ? error.message : 'Could not create API key');
@@ -714,9 +731,42 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     setAPIKeyError('');
     try {
       await revokeAPIKey(id);
-      setAPIKeys((current) => current.map((key) => key.id === id ? { ...key, revoked_at: new Date().toISOString() } : key));
+      setAPIKeys((current) => current.filter((key) => key.id !== id));
     } catch (error) {
       setAPIKeyError(error instanceof Error ? error.message : 'Could not revoke API key');
+    }
+  };
+
+  const beginEditingAPIKey = (key: APIKeyRecord) => {
+    setEditingAPIKeyID(key.id);
+    setEditingAPIKeySheetFormIds(key.permissions.map((permission) => permission.sheet_form_id));
+    setEditingAPIKeyCanWrite(key.permissions.some((permission) => permission.can_write));
+    setEditingAPIKeyAllSheetForms(key.all_sheet_forms);
+    setEditingAPIKeyQuery('');
+  };
+
+  const saveAPIKeyAccess = async () => {
+    if (!editingAPIKeyID || editingAPIKeySheetFormIds.length === 0) return;
+    setEditingAPIKeySaving(true);
+    setAPIKeyError('');
+    try {
+      await updateAPIKeyAccess(editingAPIKeyID, editingAPIKeySheetFormIds, editingAPIKeyCanWrite, editingAPIKeyAllSheetForms);
+      setAPIKeys((current) => current.map((key) => key.id !== editingAPIKeyID ? key : {
+        ...key,
+        all_sheet_forms: editingAPIKeyAllSheetForms,
+        can_write_all: editingAPIKeyAllSheetForms && editingAPIKeyCanWrite,
+        permissions: editingAPIKeySheetFormIds.map((id) => ({
+          sheet_form_id: id,
+          sheet_form_name: sheetForms.find((form) => form.id === id)?.name ?? id,
+          can_read: true,
+          can_write: editingAPIKeyCanWrite,
+        })),
+      }));
+      setEditingAPIKeyID(null);
+    } catch (error) {
+      setAPIKeyError(error instanceof Error ? error.message : 'Could not update API key access');
+    } finally {
+      setEditingAPIKeySaving(false);
     }
   };
 
@@ -832,25 +882,27 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           <ChevronDown aria-hidden="true" size={14} />
         </div>
 
-        <Button aria-label="New form" className="nav-action" onClick={createNewForm} type="button" variant="ghost" size="sm">
-          <Plus data-icon="inline-start" />
-          Create Sheet Form
-        </Button>
-
         <div className="nav-section">
           <div className="section-title">
             <ChevronDown size={14} />
             Sheet Forms
             <span className="section-count">{sheetForms.length || 1}</span>
           </div>
+          <Button aria-label="New form" className="nav-action new-form-action" onClick={createNewForm} title="New Sheet Form" type="button" variant="ghost" size="sm">
+            <Plus data-icon="inline-start" />
+            <span>New Sheet Form</span>
+          </Button>
           <div className="form-list">
             {(sheetForms.length > 0 ? sheetForms : [{ id: 'draft', name: formName } as SheetForm]).map((form) => (
               <a
-                className={sheetForm?.id === form.id || (form.id === 'draft' && !sheetForm) ? 'active' : ''}
+                className={!apiKeysPage && (sheetForm?.id === form.id || (form.id === 'draft' && !sheetForm)) ? 'active' : ''}
                 href={`#${form.name}`}
                 key={form.id}
+                title={form.name}
                 onClick={(event) => {
                   event.preventDefault();
+                  setAPIKeysPage(false);
+                  window.history.replaceState(null, '', `#${encodeURIComponent(form.name)}`);
                   if (form.id !== 'draft') void loadForm(form);
                 }}
               >
@@ -860,6 +912,19 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             ))}
           </div>
         </div>
+
+        <nav className="secondary-nav" aria-label="Access">
+          <span className="secondary-nav-label">Access</span>
+          <a
+            className={`nav-action ${apiKeysPage ? 'active' : ''}`}
+            href="#api-keys"
+            onClick={() => { setAPIKeysPage(true); setApiVisible(false); window.history.replaceState(null, '', '#api-keys'); }}
+            title="API keys"
+          >
+            <KeyRound />
+            <span>API keys</span>
+          </a>
+        </nav>
 
         {onSignOut ? (
           <div className="sidebar-footer">
@@ -886,6 +951,87 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       </aside>
 
       <main className="workspace">
+        {apiKeysPage ? (
+          <>
+            <header className="topbar">
+              <div className="title-block"><KeyRound aria-hidden="true" size={15} /><strong>API keys</strong></div>
+            </header>
+            <section className="api-keys-page" aria-label="API key management">
+              <div className="api-keys-page-heading">
+                <div>
+                  <h1>API keys</h1>
+                  <p>Manage access to your datasets independently from Sheetbase sign-in.</p>
+                </div>
+                <span className={apiKeys.length === 0 ? 'open' : 'protected'}>{apiKeys.length === 0 ? 'API open' : `${apiKeys.length} active`}</span>
+              </div>
+              <div className="api-key-create-panel">
+                <div>
+                  <strong>Create an API key</strong>
+                  <p>Select every dataset this integration needs.</p>
+                </div>
+                <div className="api-key-create">
+                  <Input aria-label="API key name" onChange={(event) => setAPIKeyName(event.target.value)} placeholder="Production sync" value={apiKeyName} />
+                  <select aria-label="API key access" onChange={(event) => setAPIKeyCanWrite(event.target.value === 'write')} value={apiKeyCanWrite ? 'write' : 'read'}>
+                    <option value="read">Read only</option><option value="write">Read and write</option>
+                  </select>
+                  <Popover.Root onOpenChange={(open) => { if (!open) setAPIKeyDatasetQuery(''); }}>
+                    <Popover.Trigger asChild><Button aria-label="Choose datasets" type="button" variant="outline" size="sm">{apiKeyAllSheetForms ? 'All datasets' : `${apiKeySheetFormIds.length} ${apiKeySheetFormIds.length === 1 ? 'dataset' : 'datasets'}`}<ChevronDown data-icon="inline-end" /></Button></Popover.Trigger>
+                    <Popover.Portal><Popover.Content align="end" className="api-key-dataset-popover" sideOffset={4}>
+                      <div className="api-key-dataset-search"><Search aria-hidden="true" /><input aria-label="Search datasets" onChange={(event) => setAPIKeyDatasetQuery(event.target.value)} placeholder="Find a dataset" value={apiKeyDatasetQuery} /></div>
+                      <div aria-label="Datasets" className="api-key-dataset-options">
+                        <label className="api-key-all-datasets"><input checked={apiKeyAllSheetForms} onChange={(event) => { setAPIKeyAllSheetForms(event.target.checked); if (event.target.checked) setAPIKeySheetFormIds(sheetForms.map((form) => form.id)); }} type="checkbox" /><span><strong>All datasets</strong><small>Includes datasets created later</small></span>{apiKeyAllSheetForms ? <Check aria-hidden="true" /> : null}</label>
+                        {sheetForms.filter((form) => form.name.toLowerCase().includes(apiKeyDatasetQuery.trim().toLowerCase())).map((form) => { const checked = apiKeySheetFormIds.includes(form.id); return <label key={form.id}><input checked={checked} onChange={(event) => { setAPIKeyAllSheetForms(false); setAPIKeySheetFormIds((current) => event.target.checked ? [...current, form.id] : current.filter((id) => id !== form.id)); }} type="checkbox" /><span>{form.name}</span>{checked ? <Check aria-hidden="true" /> : null}</label>; })}
+                      </div>
+                    </Popover.Content></Popover.Portal>
+                  </Popover.Root>
+                  <Button disabled={apiKeyName.trim() === '' || (!apiKeyAllSheetForms && apiKeySheetFormIds.length === 0) || apiKeyState === 'saving'} onClick={() => void createSheetAPIKey()} type="button" size="sm"><Plus data-icon="inline-start" />{apiKeyState === 'saving' ? 'Creating' : 'Create key'}</Button>
+                </div>
+              </div>
+              {newAPIKeyToken ? (
+                <div className="api-key-reveal" role="status">
+                  <div className="api-key-reveal-heading">
+                    <div><strong>API key created</strong><span>Copy it now. It will not be shown again.</span></div>
+                    <Button aria-label="Dismiss API key" onClick={() => setNewAPIKeyToken('')} type="button" variant="ghost" size="icon-xs"><X /></Button>
+                  </div>
+                  <div className="api-key-token-field">
+                    <KeyRound aria-hidden="true" />
+                    <code>{newAPIKeyToken}</code>
+                    <Button onClick={() => void copyAPIText('api-key', newAPIKeyToken)} type="button" variant="ghost" size="sm">{copiedSnippet === 'api-key' ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}{copiedSnippet === 'api-key' ? 'Copied' : 'Copy key'}</Button>
+                  </div>
+                </div>
+              ) : null}
+              {apiKeyError ? <p className="api-key-error" role="alert">{apiKeyError}</p> : null}
+              {apiKeys.length > 0 ? <div className="api-key-list-heading"><strong>Active keys</strong><span>{apiKeys.length} {apiKeys.length === 1 ? 'key' : 'keys'}</span></div> : null}
+              <div className="api-key-list api-key-list-page">
+                {apiKeyState === 'loading' ? <p>Loading keys…</p> : null}
+                {apiKeyState !== 'loading' && apiKeys.length === 0 ? <div className="api-key-empty"><KeyRound aria-hidden="true" /><strong>No API keys</strong><p>Your API is open until you create the first key.</p></div> : null}
+                {apiKeys.map((key) => (
+                  <div className="api-key-entry" key={key.id}>
+                    <div className="api-key-row">
+                      <div><strong>{key.name}</strong><code>{key.token_prefix}…</code></div>
+                      <span title={key.all_sheet_forms ? 'All current and future datasets' : key.permissions.map((permission) => permission.sheet_form_name).join(', ')}>{key.all_sheet_forms ? 'All datasets' : `${key.permissions.length} ${key.permissions.length === 1 ? 'dataset' : 'datasets'}`}</span>
+                      <span>{key.can_write_all || key.permissions.some((permission) => permission.can_write) ? 'Read and write' : 'Read only'}</span>
+                      <time dateTime={key.last_used_at ?? key.created_at}>{key.last_used_at ? `Used ${new Date(key.last_used_at).toLocaleDateString()}` : 'Never used'}</time>
+                      <div className="api-key-row-actions"><Button aria-expanded={editingAPIKeyID === key.id} onClick={() => editingAPIKeyID === key.id ? setEditingAPIKeyID(null) : beginEditingAPIKey(key)} type="button" variant="outline" size="sm">Manage access</Button><Button aria-label={`Revoke ${key.name}`} onClick={() => void revokeSheetAPIKey(key.id)} type="button" variant="ghost" size="icon-xs"><Trash2 /></Button></div>
+                    </div>
+                    {editingAPIKeyID === key.id ? (
+                      <div className="api-key-access-editor">
+                        <div className="api-key-access-editor-heading"><div><strong>Dataset access</strong><p>Add or remove datasets for this key at any time.</p></div><span>{editingAPIKeyAllSheetForms ? 'All datasets' : `${editingAPIKeySheetFormIds.length} selected`}</span></div>
+                        <div className="api-key-access-tools"><div className="api-key-dataset-search"><Search aria-hidden="true" /><input aria-label="Search available datasets" onChange={(event) => setEditingAPIKeyQuery(event.target.value)} placeholder="Find a dataset" value={editingAPIKeyQuery} /></div><select aria-label="Access level" onChange={(event) => setEditingAPIKeyCanWrite(event.target.value === 'write')} value={editingAPIKeyCanWrite ? 'write' : 'read'}><option value="read">Read only</option><option value="write">Read and write</option></select></div>
+                        <div className="api-key-access-grid">
+                          <label className="api-key-all-datasets"><input checked={editingAPIKeyAllSheetForms} onChange={(event) => { setEditingAPIKeyAllSheetForms(event.target.checked); if (event.target.checked) setEditingAPIKeySheetFormIds(sheetForms.map((form) => form.id)); }} type="checkbox" /><span><strong>All datasets</strong><small>Includes datasets created later</small></span>{editingAPIKeyAllSheetForms ? <Check aria-hidden="true" /> : null}</label>
+                          {sheetForms.filter((form) => form.name.toLowerCase().includes(editingAPIKeyQuery.trim().toLowerCase())).map((form) => { const checked = editingAPIKeySheetFormIds.includes(form.id); return <label key={form.id}><input checked={checked} onChange={(event) => { setEditingAPIKeyAllSheetForms(false); setEditingAPIKeySheetFormIds((current) => event.target.checked ? [...current, form.id] : current.filter((id) => id !== form.id)); }} type="checkbox" /><span>{form.name}</span>{checked ? <Check aria-hidden="true" /> : null}</label>; })}
+                        </div>
+                        <div className="api-key-access-actions"><Button onClick={() => { setEditingAPIKeyAllSheetForms(true); setEditingAPIKeySheetFormIds(sheetForms.map((form) => form.id)); }} type="button" variant="ghost" size="sm">Select all</Button><Button onClick={() => setEditingAPIKeyID(null)} type="button" variant="ghost" size="sm">Cancel</Button><Button disabled={(!editingAPIKeyAllSheetForms && editingAPIKeySheetFormIds.length === 0) || editingAPIKeySaving} onClick={() => void saveAPIKeyAccess()} type="button" size="sm">{editingAPIKeySaving ? 'Saving' : 'Save access'}</Button></div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          </>
+        ) : (
+          <>
         <header className="topbar">
           <div className="title-block">
             <Table2 aria-hidden="true" size={15} />
@@ -1013,7 +1159,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                         <span className="api-request-label">{request.label}</span>
                         <span className={`api-method ${request.method.toLowerCase()}`}>{request.method}</span>
                         <code>{request.path}</code>
-                        <Button aria-label={`Copy ${request.label.toLowerCase()} request`} onClick={() => void copyAPIText(request.key, `curl -H "X-API-Key: $SHEETBASE_API_KEY" "${window.location.origin}${request.path}"`)} type="button" variant="ghost" size="icon-xs">
+                        <Button aria-label={`Copy ${request.label.toLowerCase()} URL`} onClick={() => void copyAPIText(request.key, `${window.location.origin}${request.path}`)} type="button" variant="ghost" size="icon-xs">
                           {copiedSnippet === request.key ? <Check /> : <Copy />}
                         </Button>
                       </div>
@@ -1036,49 +1182,6 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                     ))}
                   </div>
                 </aside>
-                <section className="api-key-manager" aria-label="API keys">
-                  <div className="api-key-heading">
-                    <div>
-                      <strong><KeyRound aria-hidden="true" size={14} /> API keys</strong>
-                      <p>Keys are independent from Sheetbase sign-in and apply only to this Sheet Form.</p>
-                    </div>
-                    <span>{apiKeys.filter((key) => !key.revoked_at).length} active</span>
-                  </div>
-                  {newAPIKeyToken ? (
-                    <div className="api-key-reveal" role="status">
-                      <div><strong>Copy this key now</strong><span>It will not be shown again.</span></div>
-                      <code>{newAPIKeyToken}</code>
-                      <Button onClick={() => void copyAPIText('api-key', newAPIKeyToken)} type="button" variant="outline" size="sm">
-                        {copiedSnippet === 'api-key' ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
-                        {copiedSnippet === 'api-key' ? 'Copied' : 'Copy key'}
-                      </Button>
-                      <Button aria-label="Dismiss API key" onClick={() => setNewAPIKeyToken('')} type="button" variant="ghost" size="icon-xs"><X /></Button>
-                    </div>
-                  ) : null}
-                  <div className="api-key-create">
-                    <Input aria-label="API key name" onChange={(event) => setAPIKeyName(event.target.value)} placeholder="Production sync" value={apiKeyName} />
-                    <select aria-label="API key access" onChange={(event) => setAPIKeyCanWrite(event.target.value === 'write')} value={apiKeyCanWrite ? 'write' : 'read'}>
-                      <option value="read">Read only</option>
-                      <option value="write">Read and write</option>
-                    </select>
-                    <Button disabled={apiKeyName.trim() === '' || apiKeyState === 'saving'} onClick={() => void createSheetAPIKey()} type="button" size="sm">
-                      <Plus data-icon="inline-start" />{apiKeyState === 'saving' ? 'Creating' : 'Create key'}
-                    </Button>
-                  </div>
-                  {apiKeyError ? <p className="api-key-error" role="alert">{apiKeyError}</p> : null}
-                  <div className="api-key-list">
-                    {apiKeyState === 'loading' ? <p>Loading keys…</p> : null}
-                    {apiKeyState !== 'loading' && apiKeys.length === 0 ? <p>No keys yet. Create one for an integration or script.</p> : null}
-                    {apiKeys.map((key) => (
-                      <div className={`api-key-row ${key.revoked_at ? 'revoked' : ''}`} key={key.id}>
-                        <div><strong>{key.name}</strong><code>{key.token_prefix}…</code></div>
-                        <span>{key.can_write ? 'Read and write' : 'Read only'}</span>
-                        <time dateTime={key.last_used_at ?? key.created_at}>{key.last_used_at ? `Used ${new Date(key.last_used_at).toLocaleDateString()}` : 'Never used'}</time>
-                        {key.revoked_at ? <em>Revoked</em> : <Button aria-label={`Revoke ${key.name}`} onClick={() => void revokeSheetAPIKey(key.id)} type="button" variant="ghost" size="icon-xs"><Trash2 /></Button>}
-                      </div>
-                    ))}
-                  </div>
-                </section>
               </>
             ) : (
               <div className="api-empty-state">
@@ -1259,6 +1362,8 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             )))}
           </div>
         </section>
+          </>
+        )}
       </main>
     </div>
   );

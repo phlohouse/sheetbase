@@ -299,14 +299,23 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 				http.Error(w, "API key authentication is unavailable", http.StatusServiceUnavailable)
 				return
 			}
-			apiKeyID, ok := auth.authenticateAPIKey(r)
-			if !ok {
-				http.Error(w, "invalid or missing API key", http.StatusUnauthorized)
+			active, err := auth.apiKeys.hasActive(r.Context())
+			if err != nil {
+				http.Error(w, "API key authentication is unavailable", http.StatusServiceUnavailable)
 				return
+			}
+			jwt := auth.publicAPIJWT()
+			if active {
+				apiKeyID, ok := auth.authenticateAPIKey(r)
+				if !ok {
+					http.Error(w, "invalid or missing API key", http.StatusUnauthorized)
+					return
+				}
+				jwt = auth.apiKeyJWT(apiKeyID)
 			}
 			r.Header.Del("X-API-Key")
 			r.Header.Del("Cookie")
-			r.Header.Set("Authorization", "Bearer "+auth.apiKeyJWT(apiKeyID))
+			r.Header.Set("Authorization", "Bearer "+jwt)
 			apiProxy.ServeHTTP(w, r)
 			return
 		}

@@ -16,78 +16,164 @@ import (
 )
 
 type apiKeyStore interface {
-	create(ctx context.Context, userID, name, tokenHash, tokenPrefix, sheetFormID string, canRead, canWrite bool) (apiKeyRecord, error)
+	create(ctx context.Context, userID, name, tokenHash, tokenPrefix string, permissions []apiKeyPermission, allSheetForms bool) (apiKeyRecord, error)
 	list(ctx context.Context, userID string) ([]apiKeyRecord, error)
+	updatePermissions(ctx context.Context, userID, id string, permissions []apiKeyPermission, allSheetForms bool) error
 	revoke(ctx context.Context, userID, id string) error
 	authenticate(ctx context.Context, tokenHash string) (string, error)
+	hasActive(ctx context.Context) (bool, error)
+}
+
+type apiKeyPermission struct {
+	SheetFormID   string `json:"sheet_form_id"`
+	SheetFormName string `json:"sheet_form_name"`
+	CanRead       bool   `json:"can_read"`
+	CanWrite      bool   `json:"can_write"`
 }
 
 type apiKeyRecord struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	TokenPrefix   string     `json:"token_prefix"`
-	SheetFormID   string     `json:"sheet_form_id"`
-	SheetFormName string     `json:"sheet_form_name"`
-	CanRead       bool       `json:"can_read"`
-	CanWrite      bool       `json:"can_write"`
-	CreatedAt     time.Time  `json:"created_at"`
-	LastUsedAt    *time.Time `json:"last_used_at"`
-	RevokedAt     *time.Time `json:"revoked_at"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	TokenPrefix   string             `json:"token_prefix"`
+	Permissions   []apiKeyPermission `json:"permissions"`
+	AllSheetForms bool               `json:"all_sheet_forms"`
+	CanWriteAll   bool               `json:"can_write_all"`
+	CreatedAt     time.Time          `json:"created_at"`
+	LastUsedAt    *time.Time         `json:"last_used_at"`
+	RevokedAt     *time.Time         `json:"revoked_at"`
 }
 
 type sqlAPIKeyStore struct{ db *sql.DB }
 
-func (s sqlAPIKeyStore) create(ctx context.Context, userID, name, tokenHash, tokenPrefix, sheetFormID string, canRead, canWrite bool) (apiKeyRecord, error) {
+func (s sqlAPIKeyStore) create(ctx context.Context, userID, name, tokenHash, tokenPrefix string, permissions []apiKeyPermission, allSheetForms bool) (apiKeyRecord, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return apiKeyRecord{}, err
 	}
 	defer tx.Rollback()
-	var canManage bool
-	if err := tx.QueryRowContext(ctx, `select exists (select 1 from permissions where user_id = $1 and sheet_form_id = $2 and can_admin)`, userID, sheetFormID).Scan(&canManage); err != nil {
-		return apiKeyRecord{}, err
+	if len(permissions) == 0 {
+		return apiKeyRecord{}, errors.New("at least one Sheet Form is required")
 	}
-	if !canManage {
-		return apiKeyRecord{}, errors.New("Sheet Form admin access is required")
+	for _, permission := range permissions {
+		var canManage bool
+		if err := tx.QueryRowContext(ctx, `select exists (select 1 from permissions where user_id = $1 and sheet_form_id = $2 and can_admin)`, userID, permission.SheetFormID).Scan(&canManage); err != nil {
+			return apiKeyRecord{}, err
+		}
+		if !canManage {
+			return apiKeyRecord{}, errors.New("Sheet Form admin access is required")
+		}
 	}
 	var key apiKeyRecord
-	err = tx.QueryRowContext(ctx, `insert into api_keys (name, token_hash, token_prefix)
-values ($1, $2, $3) returning id, name, token_prefix, created_at`, name, tokenHash, tokenPrefix).
-		Scan(&key.ID, &key.Name, &key.TokenPrefix, &key.CreatedAt)
+	canWriteAll := len(permissions) > 0 && permissions[0].CanWrite
+	err = tx.QueryRowContext(ctx, `insert into api_keys (name, token_hash, token_prefix, all_sheet_forms, can_write_all)
+values ($1, $2, $3, $4, $5) returning id, name, token_prefix, all_sheet_forms, can_write_all, created_at`, name, tokenHash, tokenPrefix, allSheetForms, canWriteAll).
+		Scan(&key.ID, &key.Name, &key.TokenPrefix, &key.AllSheetForms, &key.CanWriteAll, &key.CreatedAt)
 	if err != nil {
 		return apiKeyRecord{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `insert into api_key_permissions (api_key_id, sheet_form_id, can_read, can_write)
-values ($1, $2, $3, $4)`, key.ID, sheetFormID, canRead, canWrite); err != nil {
-		return apiKeyRecord{}, err
+	for index := range permissions {
+		permission := &permissions[index]
+		if permission.CanWrite {
+			permission.CanRead = true
+		}
+		if _, err := tx.ExecContext(ctx, `insert into api_key_permissions (api_key_id, sheet_form_id, can_read, can_write) values ($1, $2, $3, $4)`, key.ID, permission.SheetFormID, permission.CanRead, permission.CanWrite); err != nil {
+			return apiKeyRecord{}, err
+		}
+		if err := tx.QueryRowContext(ctx, `select name from sheet_forms where id = $1`, permission.SheetFormID).Scan(&permission.SheetFormName); err != nil {
+			return apiKeyRecord{}, err
+		}
 	}
-	if err := tx.QueryRowContext(ctx, `select name from sheet_forms where id = $1`, sheetFormID).Scan(&key.SheetFormName); err != nil {
-		return apiKeyRecord{}, err
-	}
-	key.SheetFormID, key.CanRead, key.CanWrite = sheetFormID, canRead, canWrite
+	key.Permissions = permissions
 	return key, tx.Commit()
 }
 
 func (s sqlAPIKeyStore) list(ctx context.Context, userID string) ([]apiKeyRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `select k.id, k.name, k.token_prefix, p.sheet_form_id, sf.name,
-p.can_read, p.can_write, k.created_at, k.last_used_at, k.revoked_at
+p.can_read, p.can_write, k.all_sheet_forms, k.can_write_all, k.created_at, k.last_used_at, k.revoked_at
 from api_keys k join api_key_permissions p on p.api_key_id = k.id
 join sheet_forms sf on sf.id = p.sheet_form_id
 join permissions manager on manager.sheet_form_id = p.sheet_form_id and manager.user_id = $1 and manager.can_admin
-order by k.created_at desc`, userID)
+where k.revoked_at is null order by k.created_at desc, sf.name`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	keys := []apiKeyRecord{}
+	byID := map[string]int{}
 	for rows.Next() {
 		var key apiKeyRecord
-		if err := rows.Scan(&key.ID, &key.Name, &key.TokenPrefix, &key.SheetFormID, &key.SheetFormName, &key.CanRead, &key.CanWrite, &key.CreatedAt, &key.LastUsedAt, &key.RevokedAt); err != nil {
+		var permission apiKeyPermission
+		if err := rows.Scan(&key.ID, &key.Name, &key.TokenPrefix, &permission.SheetFormID, &permission.SheetFormName, &permission.CanRead, &permission.CanWrite, &key.AllSheetForms, &key.CanWriteAll, &key.CreatedAt, &key.LastUsedAt, &key.RevokedAt); err != nil {
 			return nil, err
 		}
-		keys = append(keys, key)
+		if index, exists := byID[key.ID]; exists {
+			keys[index].Permissions = append(keys[index].Permissions, permission)
+		} else {
+			key.Permissions = []apiKeyPermission{permission}
+			byID[key.ID] = len(keys)
+			keys = append(keys, key)
+		}
 	}
 	return keys, rows.Err()
+}
+
+func (s sqlAPIKeyStore) updatePermissions(ctx context.Context, userID, id string, permissions []apiKeyPermission, allSheetForms bool) error {
+	if len(permissions) == 0 {
+		return errors.New("at least one Sheet Form is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var canManage bool
+	if err := tx.QueryRowContext(ctx, `select exists (
+select 1 from api_keys k join api_key_permissions p on p.api_key_id = k.id
+join permissions manager on manager.sheet_form_id = p.sheet_form_id
+where k.id = $1 and k.revoked_at is null and manager.user_id = $2 and manager.can_admin
+)`, id, userID).Scan(&canManage); err != nil {
+		return err
+	}
+	if !canManage {
+		return errors.New("API key not found or admin access is required")
+	}
+	seen := map[string]bool{}
+	for _, permission := range permissions {
+		if permission.SheetFormID == "" || seen[permission.SheetFormID] {
+			continue
+		}
+		seen[permission.SheetFormID] = true
+		var targetAllowed bool
+		if err := tx.QueryRowContext(ctx, `select exists (select 1 from permissions where user_id = $1 and sheet_form_id = $2 and can_admin)`, userID, permission.SheetFormID).Scan(&targetAllowed); err != nil {
+			return err
+		}
+		if !targetAllowed {
+			return errors.New("Sheet Form admin access is required")
+		}
+	}
+	if len(seen) == 0 {
+		return errors.New("at least one Sheet Form is required")
+	}
+	if _, err := tx.ExecContext(ctx, `delete from api_key_permissions where api_key_id = $1`, id); err != nil {
+		return err
+	}
+	for _, permission := range permissions {
+		if permission.SheetFormID == "" || !seen[permission.SheetFormID] {
+			continue
+		}
+		delete(seen, permission.SheetFormID)
+		if permission.CanWrite {
+			permission.CanRead = true
+		}
+		if _, err := tx.ExecContext(ctx, `insert into api_key_permissions (api_key_id, sheet_form_id, can_read, can_write) values ($1, $2, $3, $4)`, id, permission.SheetFormID, permission.CanRead, permission.CanWrite); err != nil {
+			return err
+		}
+	}
+	canWriteAll := len(permissions) > 0 && permissions[0].CanWrite
+	if _, err := tx.ExecContext(ctx, `update api_keys set all_sheet_forms = $2, can_write_all = $3 where id = $1`, id, allSheetForms, canWriteAll); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s sqlAPIKeyStore) revoke(ctx context.Context, userID, id string) error {
@@ -114,6 +200,12 @@ func (s sqlAPIKeyStore) authenticate(ctx context.Context, tokenHash string) (str
 	err := s.db.QueryRowContext(ctx, `update api_keys set last_used_at = now()
 where token_hash = $1 and revoked_at is null returning id`, tokenHash).Scan(&id)
 	return id, err
+}
+
+func (s sqlAPIKeyStore) hasActive(ctx context.Context) (bool, error) {
+	var active bool
+	err := s.db.QueryRowContext(ctx, `select exists (select 1 from api_keys where revoked_at is null)`).Scan(&active)
+	return active, err
 }
 
 func generateAPIKey() (token, hash, prefix string, err error) {
@@ -176,33 +268,34 @@ func handleAPIKeys(auth *authService, w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, keys)
 	case r.Method == http.MethodPost && r.URL.Path == "/admin/api-keys":
 		var body struct {
-			Name        string `json:"name"`
-			SheetFormID string `json:"sheet_form_id"`
-			CanRead     bool   `json:"can_read"`
-			CanWrite    bool   `json:"can_write"`
+			Name          string   `json:"name"`
+			SheetFormIDs  []string `json:"sheet_form_ids"`
+			CanWrite      bool     `json:"can_write"`
+			AllSheetForms bool     `json:"all_sheet_forms"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
 		body.Name = strings.TrimSpace(body.Name)
-		if body.Name == "" || body.SheetFormID == "" {
-			http.Error(w, "name and Sheet Form are required", http.StatusBadRequest)
+		if body.Name == "" || len(body.SheetFormIDs) == 0 {
+			http.Error(w, "name and at least one Sheet Form are required", http.StatusBadRequest)
 			return
 		}
-		if body.CanWrite {
-			body.CanRead = true
-		}
-		if !body.CanRead {
-			http.Error(w, "choose read or read and write access", http.StatusBadRequest)
-			return
+		permissions := make([]apiKeyPermission, 0, len(body.SheetFormIDs))
+		seen := map[string]bool{}
+		for _, id := range body.SheetFormIDs {
+			if id != "" && !seen[id] {
+				seen[id] = true
+				permissions = append(permissions, apiKeyPermission{SheetFormID: id, CanRead: true, CanWrite: body.CanWrite})
+			}
 		}
 		token, hash, prefix, err := generateAPIKey()
 		if err != nil {
 			http.Error(w, "generate API key", http.StatusInternalServerError)
 			return
 		}
-		key, err := auth.apiKeys.create(r.Context(), userID, body.Name, hash, prefix, body.SheetFormID, body.CanRead, body.CanWrite)
+		key, err := auth.apiKeys.create(r.Context(), userID, body.Name, hash, prefix, permissions, body.AllSheetForms)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("create API key: %v", err), http.StatusBadRequest)
 			return
@@ -221,6 +314,30 @@ func handleAPIKeys(auth *authService, w http.ResponseWriter, r *http.Request) {
 		}
 		if err := auth.apiKeys.revoke(r.Context(), userID, id); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/admin/api-keys/"):
+		id := strings.TrimPrefix(r.URL.Path, "/admin/api-keys/")
+		if id == "" || strings.Contains(id, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		var body struct {
+			SheetFormIDs  []string `json:"sheet_form_ids"`
+			CanWrite      bool     `json:"can_write"`
+			AllSheetForms bool     `json:"all_sheet_forms"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		permissions := make([]apiKeyPermission, 0, len(body.SheetFormIDs))
+		for _, formID := range body.SheetFormIDs {
+			permissions = append(permissions, apiKeyPermission{SheetFormID: formID, CanRead: true, CanWrite: body.CanWrite})
+		}
+		if err := auth.apiKeys.updatePermissions(r.Context(), userID, id, permissions, body.AllSheetForms); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

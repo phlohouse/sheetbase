@@ -78,7 +78,7 @@ func TestSheetbaseSessionProtectsOnlyInternalProxy(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	auth := &authService{store: &fakeUserStore{}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	auth := &authService{store: &fakeUserStore{}, apiKeys: &fakeAPIKeyStore{active: true}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
 	handler, err := newUIHandler(backend.URL, auth)
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +135,27 @@ func TestAPIKeyAuthenticatesPublicProxyWithoutSheetbaseSession(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("API key status = %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestPublicProxyIsOpenWhenNoAPIKeysExist(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			t.Fatal("missing public PostgREST JWT")
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer backend.Close()
+	auth := &authService{apiKeys: &fakeAPIKeyStore{}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	handler, err := newUIHandler(backend.URL, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("open API status = %d: %s", res.Code, res.Body.String())
 	}
 }
 
@@ -342,13 +363,19 @@ type fakeUserStore struct {
 	user userRecord
 }
 
-type fakeAPIKeyStore struct{ authenticatedID string }
+type fakeAPIKeyStore struct {
+	authenticatedID string
+	active          bool
+}
 
-func (s *fakeAPIKeyStore) create(_ context.Context, _, name, _, prefix, sheetFormID string, canRead, canWrite bool) (apiKeyRecord, error) {
-	return apiKeyRecord{ID: "key-1", Name: name, TokenPrefix: prefix, SheetFormID: sheetFormID, CanRead: canRead, CanWrite: canWrite}, nil
+func (s *fakeAPIKeyStore) create(_ context.Context, _, name, _, prefix string, permissions []apiKeyPermission, allSheetForms bool) (apiKeyRecord, error) {
+	return apiKeyRecord{ID: "key-1", Name: name, TokenPrefix: prefix, Permissions: permissions, AllSheetForms: allSheetForms}, nil
 }
 func (s *fakeAPIKeyStore) list(context.Context, string) ([]apiKeyRecord, error) {
 	return []apiKeyRecord{}, nil
+}
+func (s *fakeAPIKeyStore) updatePermissions(context.Context, string, string, []apiKeyPermission, bool) error {
+	return nil
 }
 func (s *fakeAPIKeyStore) revoke(context.Context, string, string) error { return nil }
 func (s *fakeAPIKeyStore) authenticate(context.Context, string) (string, error) {
@@ -356,6 +383,9 @@ func (s *fakeAPIKeyStore) authenticate(context.Context, string) (string, error) 
 		return "", errors.New("not found")
 	}
 	return s.authenticatedID, nil
+}
+func (s *fakeAPIKeyStore) hasActive(context.Context) (bool, error) {
+	return s.active || s.authenticatedID != "", nil
 }
 
 func (s *fakeUserStore) createFirstUser(_ context.Context, email, passwordHash string) (string, error) {

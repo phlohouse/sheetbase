@@ -1,11 +1,10 @@
 # Sheetbase
 
 Spreadsheet-like data entry backed by real PostgreSQL tables and exposed through a PostgREST-style API.
-Stencil `.stencil.yaml` configs can be imported in the UI to seed Header Row columns.
 
-Start with [docs/plans/PLAN.md](docs/plans/PLAN.md). For deployment, see [docs/INSTALL.md](docs/INSTALL.md). For first use and API examples, see [docs/USAGE.md](docs/USAGE.md).
+Define fields in a Header Row, type records into cells, and immediately have a database-backed resource with a full REST API. No spreadsheets to upload, no custom app to build.
 
-## Development
+## Quick Start
 
 ```sh
 cd ui && npm install
@@ -13,41 +12,120 @@ cd ..
 make serve
 ```
 
-`make serve` uses `.sheetbase` in the repository as its development home. On first use it downloads pinned PostgreSQL and PostgREST binaries into `.sheetbase/runtime`, starts them on ports `55532` and `3010`, applies migrations, then serves the app at `http://127.0.0.1:8080`. Override the ports with `SHEETBASE_DEV_POSTGRES_PORT` and `SHEETBASE_DEV_POSTGREST_PORT`.
+`make serve` uses `.sheetbase` in the repository as its development home. On first use it downloads pinned PostgreSQL 16.14 and PostgREST 14.14 binaries, starts them, applies migrations, then serves the app at `http://127.0.0.1:8080`. Override ports with `SHEETBASE_DEV_POSTGRES_PORT` and `SHEETBASE_DEV_POSTGREST_PORT`.
 
-Useful commands:
+Open the app, create the first admin user, then create a Sheet Form.
 
-- `make ui-build`: build the React UI into `ui/dist`
-- `make dev-services`: start or repair the project-local PostgreSQL and PostgREST services without starting the web app
-- `make up`: start PostgreSQL, PostgREST, and Sheetbase in the background
-- `make down`: stop all three background processes
-- `make test`: build the UI and run Go tests
-- `make verify`: run unit, Docker, app/auth, managed lifecycle, and release smoke checks
-- `make db-test`: run PostgreSQL schema tests in Docker
-- `make api-test`: run a PostgREST integration test in Docker
-- `make app-test`: run a Docker-backed app/auth/proxy integration test
-- `make managed-test`: run the legacy Docker lifecycle integration test
-- `cd ui && npm run smoke:browser`: run the sign-in, Sheet Form save, and API query browser smoke against a running app
-- `make build`: build `bin/sheetbase`
-- `make linux`: build `bin/sheetbase-linux-amd64`
-- `make release`: build `bin/release/sheetbase-linux-amd64` and its SHA-256 checksum
-- `make release-smoke`: build the release binary and smoke-test its embedded UI
-- `go run . serve --home .sheetbase -addr :8080`: serve the embedded UI and `/api` proxy
-- `go run . init --home .sheetbase`: create a local Sheetbase home
-- `go run . runtime install --home .sheetbase`: download or refresh the pinned native runtime
-- `go run . start --home .sheetbase`: install if needed and start native PostgreSQL and PostgREST
-- `go run . up --home .sheetbase`: start PostgreSQL, PostgREST, and the web app in the background
-- `go run . down --home .sheetbase`: stop all three background processes
-- `go run . doctor --home .sheetbase`: check required external commands
-- `go run . migrate --home .sheetbase`: apply embedded database migrations
-- `go run . upgrade --home .sheetbase`: apply embedded database migrations during upgrade
-- `go run . status --home .sheetbase`: show app, PostgreSQL, and PostgREST status
-- `go run . stop --home .sheetbase`: stop managed processes
-- `go run . backup --home .sheetbase`: write a PostgreSQL dump under `.sheetbase/backups`
-- `go run . export --home .sheetbase`: write app metadata and a PostgreSQL dump under `.sheetbase/backups`
-- `go run . restore --home .sheetbase --in .sheetbase/backups/sheetbase-YYYYMMDDTHHMMSSZ.dump`: restore a dump
-- `go run . systemd --home /var/lib/sheetbase --bin /usr/local/bin/sheetbase`: print a systemd unit
+## Documentation
 
-Native mode is the default on macOS and Linux. PostgreSQL comes from EDB on macOS and official PGDG DEB/RPM repositories on Linux; PostgREST comes from its official GitHub release. Downloads are pinned and cached under `<home>/runtime/downloads`. Use `--runtime docker` or `SHEETBASE_RUNTIME=docker` for the legacy container mode.
-`init` writes `.sheetbase/config/sheetbase.env`; flags and environment variables override it.
-Sheetbase administration and API authentication are independent. The browser uses a private `/internal` proxy protected by the `sheetbase_session` cookie. Public `/api` requests require a scoped API key in `X-API-Key` or `Authorization: Bearer …`; Sheetbase cookies are ignored on that route. Create and revoke keys from the API panel. Admin sign-in uses `POST /auth/setup`, `POST /auth/login`, `GET /auth/me`, and `POST /auth/logout`.
+| Document | Description |
+|----------|-------------|
+| [docs/INSTALL.md](docs/INSTALL.md) | Deployment guide — build, install, systemd, backup/restore |
+| [docs/USAGE.md](docs/USAGE.md) | First use — creating Sheet Forms, entering data, using the API |
+| [docs/CLI.md](docs/CLI.md) | Full CLI reference — every command, flag, and env var |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture — components, request flow, data model, auth |
+| [docs/API.md](docs/API.md) | API reference — auth endpoints, API keys, PostgREST query syntax |
+| [docs/plans/PLAN.md](docs/plans/PLAN.md) | Product plan and architecture decisions |
+| [docs/plans/SPEC.md](docs/plans/SPEC.md) | Full specification and user stories |
+| [docs/plans/ROADMAP.md](docs/plans/ROADMAP.md) | Implementation phases |
+| [DESIGN.md](DESIGN.md) | UI design system — palette, typography, components |
+| [PRODUCT.md](PRODUCT.md) | Product brief — users, purpose, principles |
+
+## Development
+
+### Make Targets
+
+| Target | Description |
+|--------|-------------|
+| `make ui-build` | Build the React UI into `ui/dist` |
+| `make dev-services` | Start PostgreSQL and PostgREST without the web app |
+| `make serve` | Build UI, start services, serve the app at `:8080` |
+| `make up` | Start PostgreSQL, PostgREST, and Sheetbase in the background |
+| `make down` | Stop all three background processes |
+| `make test` | Build UI and run Go tests |
+| `make verify` | Run unit, Docker, app/auth, managed lifecycle, and release smoke checks |
+| `make db-test` | Run PostgreSQL schema tests in Docker |
+| `make api-test` | Run a PostgREST integration test in Docker |
+| `make app-test` | Run a Docker-backed app/auth/proxy integration test |
+| `make managed-test` | Run the legacy Docker lifecycle integration test |
+| `make build` | Build `bin/sheetbase` |
+| `make linux` | Cross-compile `bin/sheetbase-linux-amd64` |
+| `make release` | Build release binary and SHA-256 checksum |
+| `make release-smoke` | Build release binary and smoke-test its embedded UI |
+
+### UI Smoke Tests
+
+```sh
+cd ui && npm run smoke:browser
+```
+
+Runs sign-in, Sheet Form save, and API query browser smoke tests against a running app.
+
+## Deployment
+
+See [docs/INSTALL.md](docs/INSTALL.md) for the full deployment guide. Quick summary:
+
+```sh
+make release                    # build bin/release/sheetbase-linux-amd64
+# copy to server as /usr/local/bin/sheetbase
+sheetbase runtime install --home /var/lib/sheetbase
+sheetbase init --home /var/lib/sheetbase
+sheetbase start --home /var/lib/sheetbase
+sheetbase serve --home /var/lib/sheetbase -addr :8080
+```
+
+For systemd:
+
+```sh
+sheetbase systemd --home /var/lib/sheetbase --bin /usr/local/bin/sheetbase > sheetbase.service
+sudo cp sheetbase.service /etc/systemd/system/
+sudo systemctl enable --now sheetbase
+```
+
+## How It Works
+
+Sheetbase is a single Go binary that manages three things:
+
+1. **PostgreSQL** — stores Sheet Form metadata (Control Tables) and user data (one Generated Table per Sheet Form)
+2. **PostgREST** — exposes PostgreSQL as a REST API with filtering, pagination, and RPC
+3. **React UI** — an embedded spreadsheet-like interface for defining forms and entering data
+
+The binary serves the UI, authenticates users with session cookies, issues scoped API keys, and proxies both browser and API requests to PostgREST with injected JWTs. Row Level Security in PostgreSQL enforces access control per user and per API key.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture.
+
+## Key Concepts
+
+- **Sheet Form**: A user-created data-entry form whose columns map to a real PostgreSQL table
+- **Header Row**: The first row of the UI; type column names there to define fields
+- **Generated Table**: The PostgreSQL table created from a Sheet Form
+- **Control Tables**: PostgreSQL tables storing Sheet Form metadata, users, permissions, and API keys
+- **Type Tightening**: Converting a `text` column to a stricter type after all existing values validate
+- **Stencil Config Import**: Optional `.stencil.yaml` import to seed Header Row fields from an existing schema
+
+## Authentication
+
+Sheetbase has two independent auth systems:
+
+- **Admin sessions** (browser): email/password sign-in with a signed `sheetbase_session` cookie. Endpoints: `POST /auth/setup`, `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`
+- **API keys** (programmatic): scoped to one Sheet Form, read or read+write. Send via `X-API-Key` or `Authorization: Bearer` header. Create and revoke from the API panel or `POST /admin/api-keys`
+
+The browser uses a private `/internal` proxy (cookie auth). Public `/api` requests require an API key; session cookies are ignored on that route.
+
+See [docs/API.md](docs/API.md) for the full API reference.
+
+## Runtime
+
+Native mode is the default on macOS and Linux. PostgreSQL comes from EDB on macOS and PGDG DEB/RPM repositories on Linux. PostgREST comes from its official GitHub release. Downloads are pinned, SHA-256 verified, and cached under `<home>/runtime/downloads`.
+
+Use `--runtime docker` or `SHEETBASE_RUNTIME=docker` for the legacy Docker container mode.
+
+See [docs/CLI.md](docs/CLI.md) for the full CLI reference.
+
+## Tech Stack
+
+- **Server**: Go 1.23, single binary, embedded UI
+- **Database**: PostgreSQL 16.14
+- **API**: PostgREST 14.14
+- **UI**: React 19, Vite 7, Tailwind CSS 4, Handsontable 18
+- **Auth**: bcrypt, HMAC-SHA256 session tokens, HS256 JWTs

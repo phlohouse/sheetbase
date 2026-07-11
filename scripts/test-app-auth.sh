@@ -44,6 +44,8 @@ done
 if [[ "$postgres_ready" != "yes" ]]; then docker logs "$postgres" >&2; exit 1; fi
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/001_control_schema.sql >/dev/null
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/002_api_keys.sql >/dev/null
+docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/003_open_api_without_keys.sql >/dev/null
+docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/004_api_key_all_datasets.sql >/dev/null
 
 docker run \
   --detach \
@@ -104,22 +106,37 @@ form_json="$(curl --fail --silent \
 
 generated_table="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
 form_id="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+second_form_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' --header 'Prefer: return=representation' --data '{"name":"Auth Contacts","headers":["Name"]}' "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
+second_form_id="$(printf '%s' "$second_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+second_generated_table="$(printf '%s' "$second_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
 
 cookie_api_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --cookie "$cookie_file" "http://127.0.0.1:18080/api/$generated_table?limit=1")"
-if [[ "$cookie_api_status" != "401" ]]; then
-  echo "Expected Sheetbase cookie to be rejected by public API, got $cookie_api_status" >&2
+if [[ "$cookie_api_status" != "200" ]]; then
+  echo "Expected public API to be open before the first key, got $cookie_api_status" >&2
   exit 1
 fi
 
 api_key_json="$(curl --fail --silent \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
-  --data "{\"name\":\"Test integration\",\"sheet_form_id\":\"$form_id\",\"can_read\":true,\"can_write\":true}" \
+  --data "{\"name\":\"Test integration\",\"sheet_form_ids\":[\"$form_id\",\"$second_form_id\"],\"can_write\":true,\"all_sheet_forms\":true}" \
   "http://127.0.0.1:18080/admin/api-keys")"
 api_key="$(printf '%s' "$api_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
 api_key_id="$(printf '%s' "$api_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+permission_count="$(printf '%s' "$api_key_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["permissions"]))')"
+if [[ "$permission_count" != "2" ]]; then echo "Expected API key to cover two datasets, got $permission_count" >&2; exit 1; fi
 
 curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$generated_table?limit=1" >/dev/null
+curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$second_generated_table?limit=1" >/dev/null
+
+future_form_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' --header 'Prefer: return=representation' --data '{"name":"Future dataset","headers":["Value"]}' "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
+future_form_id="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+future_generated_table="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
+curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_generated_table?limit=1" >/dev/null
+curl --fail --silent --request PATCH --cookie "$cookie_file" --header 'Content-Type: application/json' \
+  --data "{\"sheet_form_ids\":[\"$form_id\",\"$second_form_id\",\"$future_form_id\"],\"can_write\":true}" \
+  "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
+curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_generated_table?limit=1" >/dev/null
 
 forms="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_forms?select=name")"
 if [[ "$forms" != *"Auth Companies"* ]]; then
@@ -159,7 +176,7 @@ curl --fail --silent \
   "http://127.0.0.1:18080/api/$generated_table" >/dev/null
 
 read_key_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' \
-  --data "{\"name\":\"Read only\",\"sheet_form_id\":\"$form_id\",\"can_read\":true,\"can_write\":false}" \
+  --data "{\"name\":\"Read only\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
   "http://127.0.0.1:18080/admin/api-keys")"
 read_key="$(printf '%s' "$read_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
 read_key_id="$(printf '%s' "$read_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
@@ -249,8 +266,13 @@ if [[ "$visible_metadata" == *"Domain"* ]]; then
   exit 1
 fi
 
+guard_key_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' \
+  --data "{\"name\":\"Revocation guard\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
+  "http://127.0.0.1:18080/admin/api-keys")"
+guard_key_id="$(printf '%s' "$guard_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 curl --fail --silent --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
 revoked_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$generated_table?limit=1")"
 if [[ "$revoked_status" != "401" ]]; then echo "Revoked API key returned $revoked_status" >&2; exit 1; fi
+curl --fail --silent --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$guard_key_id" >/dev/null
 
 echo "Sheetbase app auth/proxy test passed"

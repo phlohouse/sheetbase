@@ -44,3 +44,10 @@ curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/sheet_companies?
 ```
 
 API keys are independent from Sheetbase sign-in, stored as hashes, scoped to one Sheet Form, and can be read-only or read/write. Revoking a key takes effect on its next request without signing anyone out of Sheetbase. The `/api` paths are proxied to PostgREST, so standard PostgREST filters, ordering, pagination, and `select` parameters apply.
+
+## See Also
+
+- [API Reference](API.md) — full endpoint documentation with curl examples
+- [CLI Reference](CLI.md) — every command, flag, and env var
+- [Architecture](ARCHITECTURE.md) — system components, request flow, data model
+- [Install Guide](INSTALL.md) — deployment, systemd, backup/restore

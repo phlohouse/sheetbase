@@ -206,6 +206,10 @@ func (a *authService) apiKeyJWT(apiKeyID string) string {
 	return a.jwtFor(apiKeyID, "api_key")
 }
 
+func (a *authService) publicAPIJWT() string {
+	return a.jwtFor("00000000-0000-0000-0000-000000000000", "public")
+}
+
 func (a *authService) jwtFor(subject, kind string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	payload, _ := json.Marshal(map[string]any{
