@@ -1,3 +1,5 @@
+import { sheetbaseClientID } from './live';
+
 export interface SheetForm {
   id: string;
   slug: string;
@@ -202,6 +204,11 @@ export async function listRows<T extends Record<string, unknown>>(
   return request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}?select=*&limit=200`, fetcher);
 }
 
+export async function getRow<T extends Record<string, unknown>>(tableName: string, id: string, fetcher: typeof fetch = fetch): Promise<T | undefined> {
+  const rows = await request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, fetcher);
+  return rows[0];
+}
+
 export async function insertRows<T extends Record<string, unknown>>(
   tableName: string,
   rows: T[],
@@ -231,9 +238,13 @@ export async function updateRow<T extends Record<string, unknown>>(
   tableName: string,
   id: string,
   row: T,
+  expectedVersionOrFetcher?: string | typeof fetch,
   fetcher: typeof fetch = fetch,
 ): Promise<T[]> {
-  return request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}?id=eq.${encodeURIComponent(id)}`, fetcher, {
+  const expectedVersion = typeof expectedVersionOrFetcher === 'string' ? expectedVersionOrFetcher : undefined;
+  if (typeof expectedVersionOrFetcher === 'function') fetcher = expectedVersionOrFetcher;
+  const versionFilter = expectedVersion ? `&updated_at=eq.${encodeURIComponent(expectedVersion)}` : '';
+  const updated = await request<T[]>(`${postgrestUrl}/${encodeURIComponent(tableName)}?id=eq.${encodeURIComponent(id)}${versionFilter}`, fetcher, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -241,24 +252,35 @@ export async function updateRow<T extends Record<string, unknown>>(
     },
     body: JSON.stringify(row),
   });
+  if (expectedVersion && updated.length === 0) throw new Error('This row changed elsewhere. Reload it before saving your edit.');
+  return updated;
 }
 
 export async function deleteRow(
   tableName: string,
   id: string,
+  expectedVersionOrFetcher?: string | typeof fetch,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
-  const response = await fetcher(`${postgrestUrl}/${encodeURIComponent(tableName)}?id=eq.${encodeURIComponent(id)}`, {
+  const expectedVersion = typeof expectedVersionOrFetcher === 'string' ? expectedVersionOrFetcher : undefined;
+  if (typeof expectedVersionOrFetcher === 'function') fetcher = expectedVersionOrFetcher;
+  const versionFilter = expectedVersion ? `&updated_at=eq.${encodeURIComponent(expectedVersion)}` : '';
+  const response = await fetcher(`${postgrestUrl}/${encodeURIComponent(tableName)}?id=eq.${encodeURIComponent(id)}${versionFilter}`, {
     method: 'DELETE',
+    headers: { 'X-Sheetbase-Client-ID': sheetbaseClientID, Prefer: 'return=representation' },
   });
   if (!response.ok) {
     const detail = (await response.text()).trim();
     throw new Error(detail && detail !== '{}' ? detail : `PostgREST request failed: ${response.status}`);
   }
+  if (expectedVersion && (await response.json() as unknown[]).length === 0) throw new Error('This row changed elsewhere. Reload it before deleting.');
 }
 
 async function request<T>(url: string, fetcher: typeof fetch, init?: RequestInit): Promise<T> {
-  const response = await fetcher(url, init);
+  const response = await fetcher(url, {
+    ...init,
+    headers: { 'X-Sheetbase-Client-ID': sheetbaseClientID, ...(init?.headers ?? {}) },
+  });
   if (!response.ok) {
     const detail = (await response.text()).trim();
     throw new Error(detail && detail !== '{}' ? detail : `PostgREST request failed: ${response.status}`);

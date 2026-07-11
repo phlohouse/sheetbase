@@ -164,6 +164,17 @@ Authorization: Bearer sbk_abcdef1234567890...
 
 Sheetbase cookies are ignored on `/api` routes. The key is validated, a short-lived JWT is issued, and the request is proxied to PostgREST with standard PostgREST query syntax.
 
+## Live UI Events
+
+The signed-in browser UI uses Server-Sent Events. These endpoints require the Sheetbase session cookie and are not part of the public API:
+
+```text
+GET /internal/events?scope=workspace
+GET /internal/events?dataset={sheet-form-id}
+```
+
+Events have ordered IDs and are replayed from the durable `workspace_changes` log when the browser reconnects with `Last-Event-ID`. The workspace stream carries every authorized form, schema, and row event in one ordered connection. The dataset stream is available to authorized clients that only need one Sheet Form.
+
 ### Querying Datasets by Slug
 
 Public dataset routes use the editable Sheet Form slug (e.g., `companies`). Sheetbase resolves that stable route to the physical PostgreSQL table:

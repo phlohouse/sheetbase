@@ -22,6 +22,8 @@ type authService struct {
 	store           userStore
 	apiKeys         apiKeyStore
 	sheetForms      sheetFormStore
+	events          changeEventStore
+	eventNotifier   changeEventNotifier
 	jwtSecret       string
 	sessions        map[string]sessionRecord
 	revokedSessions map[string]time.Time
@@ -65,7 +67,8 @@ func newAuthService(dbURL, jwtSecret string) (*authService, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("connect auth database: %w", err)
 	}
-	return &authService{store: sqlUserStore{db: db}, apiKeys: sqlAPIKeyStore{db: db}, sheetForms: sqlSheetFormStore{db: db}, jwtSecret: jwtSecret, sessions: map[string]sessionRecord{}, revokedSessions: map[string]time.Time{}}, nil
+	_, _ = db.Exec(`delete from workspace_changes where created_at < now() - interval '7 days'`)
+	return &authService{store: sqlUserStore{db: db}, apiKeys: sqlAPIKeyStore{db: db}, sheetForms: sqlSheetFormStore{db: db}, events: sqlChangeEventStore{db: db}, eventNotifier: newPGChangeNotifier(dbURL), jwtSecret: jwtSecret, sessions: map[string]sessionRecord{}, revokedSessions: map[string]time.Time{}}, nil
 }
 
 func (a *authService) handleSetup(w http.ResponseWriter, r *http.Request) {

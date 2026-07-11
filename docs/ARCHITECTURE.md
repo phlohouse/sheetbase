@@ -99,6 +99,7 @@ Requests for files that exist in `ui/dist/` are served directly. All other paths
 | `permissions` | Per-user/per-role access to Sheet Forms: can_read, can_write, can_admin |
 | `api_keys` | API key records: name, token_hash, token_prefix, timestamps, revoked_at |
 | `api_key_permissions` | API key scope: one row per key+Sheet Form with can_read, can_write |
+| `workspace_changes` | Ordered durable workspace, schema, and row events used for live replay |
 
 ### Generated Tables
 
@@ -130,6 +131,12 @@ Schema-changing operations are implemented as PostgreSQL functions exposed throu
 | `update_sheet_view_column_order(form_id, column_order[])` | Persist column order |
 
 All schema functions use `SECURITY DEFINER` and check `can_access_sheet_form()` for `admin` access before mutating.
+
+### Live change flow
+
+Generated tables and control tables write a compact event to `workspace_changes` in the same PostgreSQL transaction as each change. PostgreSQL `NOTIFY` wakes one shared listener in the Go process. Signed-in browsers subscribe over `/internal/events`; the server reads the durable rows, sends ordered SSE IDs, and replays missed events after reconnecting. A five-second fallback query protects against a temporarily disconnected database listener.
+
+The UI uses one permission-filtered workspace stream for form, schema, and row events, and sends a per-tab client ID with its writes so it can distinguish confirmations from remote changes. Row updates include the last observed `updated_at` value; a stale update changes no rows and is surfaced as a conflict instead of overwriting newer data.
 
 ### Row Level Security
 

@@ -68,4 +68,18 @@ describe('api client', () => {
 
     await expect(listSheetForms(fetcher)).rejects.toThrow('permission denied for sheet form');
   });
+
+  it('rejects an update when the row version has changed', async () => {
+    let requested = '';
+    const fetcher = (async (input: string | URL | Request) => { requested = String(input); return new Response('[]', { status: 200 }); }) as typeof fetch;
+    await expect(updateRow('companies', 'row-1', { name: 'New' }, '2026-01-01T00:00:00Z', fetcher))
+      .rejects.toThrow('changed elsewhere');
+    expect(requested).toContain('updated_at=eq.2026-01-01T00%3A00%3A00Z');
+  });
+
+  it('rejects a delete when the row version has changed', async () => {
+    const fetcher = (async () => new Response('[]', { status: 200 })) as typeof fetch;
+    await expect(deleteRow('companies', 'row-1', '2026-01-01T00:00:00Z', fetcher))
+      .rejects.toThrow('changed elsewhere');
+  });
 });

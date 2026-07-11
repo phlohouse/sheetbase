@@ -278,6 +278,10 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 			handleAPIKeys(auth, w, r)
 			return
 		}
+		if auth != nil && r.Method == http.MethodGet && r.URL.Path == "/internal/events" {
+			handleChangeEvents(auth, w, r)
+			return
+		}
 
 		if r.URL.Path == "/internal" || strings.HasPrefix(r.URL.Path, "/internal/") {
 			if auth != nil {
@@ -356,6 +360,8 @@ type responseLogWriter struct {
 	http.ResponseWriter
 	status int
 }
+
+func (w *responseLogWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *responseLogWriter) WriteHeader(status int) {
 	w.status = status

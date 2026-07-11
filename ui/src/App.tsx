@@ -33,9 +33,10 @@ import { Popover } from 'radix-ui';
 import 'handsontable/styles/handsontable.min.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { addSheetField, archiveSheetForm, createSheetForm, deleteRow, deleteSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetField, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
+import { addSheetField, archiveSheetForm, createSheetForm, deleteRow, deleteSheetForm, getRow, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetField, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
 import { createAPIKey, listAPIKeys, revokeAPIKey, updateAPIKeyAccess, type APIKeyRecord } from './api-keys';
+import { createLatestEventTracker, sheetbaseClientID, subscribeToChanges, type ChangeEvent } from './live';
 
 registerAllModules();
 
@@ -52,6 +53,8 @@ interface Column {
 interface Row {
   id: string;
   values: Record<string, string>;
+  version?: string;
+  dirty?: boolean;
 }
 
 const initialColumns: Column[] = [
@@ -148,6 +151,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('Local draft');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
+  const [liveStatus, setLiveStatus] = useState<'connecting' | 'connected' | 'offline'>('connecting');
   const [apiVisible, setApiVisible] = useState(() => window.location.hash === '#api');
   const [apiKeysPage, setAPIKeysPage] = useState(() => window.location.hash === '#api-keys');
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
@@ -177,6 +181,11 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const draftStartedRef = useRef(false);
   const autosaveTimerRef = useRef<number | null>(null);
   const saveToAPIRef = useRef<() => Promise<void>>(async () => undefined);
+  const sheetFormRef = useRef<SheetForm | null>(null);
+  const rowsRef = useRef<Row[]>(rows);
+  const columnsRef = useRef<Column[]>(columns);
+  const liveRefreshTimerRef = useRef<number | null>(null);
+  const liveEventTrackerRef = useRef(createLatestEventTracker());
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -186,7 +195,12 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
 
   useEffect(() => () => {
     if (autosaveTimerRef.current !== null) window.clearTimeout(autosaveTimerRef.current);
+    if (liveRefreshTimerRef.current !== null) window.clearTimeout(liveRefreshTimerRef.current);
   }, []);
+
+  useEffect(() => { sheetFormRef.current = sheetForm; }, [sheetForm]);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
+  useEffect(() => { columnsRef.current = columns; }, [columns]);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,7 +266,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     if (headerEditor) headerInputRef.current?.focus();
   }, [headerEditor]);
 
-  const loadForm = async (form: SheetForm, isCancelled: () => boolean = () => false) => {
+  const loadForm = async (form: SheetForm, isCancelled: () => boolean = () => false, liveRefresh = false) => {
     draftStartedRef.current = false;
     try {
       const fields = await listSheetFields(form.id);
@@ -271,15 +285,99 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setFormName(form.name);
       setColumns(nextColumns);
       setRows(ensureBlankRow(loadedRows, nextColumns));
-      setApiVisible(false);
+      if (!liveRefresh) setApiVisible(false);
       setActiveFieldIndex(null);
       setSaveState('saved');
-      setSaveMessage('Loaded from database');
+      setSaveMessage(liveRefresh ? 'Updated live' : 'Loaded from database');
     } catch (error) {
       if (isCancelled()) return;
       setSaveState('error');
       setSaveMessage(error instanceof Error ? error.message : 'Load failed');
     }
+  };
+
+  useEffect(() => {
+    const refreshAll = () => {
+      const form = sheetFormRef.current;
+      if (!form) return;
+      if (rowsRef.current.some((row) => row.dirty)) {
+        setSaveState('error');
+        setSaveMessage('Remote changes available — save or reload');
+        return;
+      }
+      if (liveRefreshTimerRef.current !== null) window.clearTimeout(liveRefreshTimerRef.current);
+      liveRefreshTimerRef.current = window.setTimeout(() => void loadForm(form, () => sheetFormRef.current?.id !== form.id, true), 80);
+    };
+    return subscribeToChanges({ scope: 'workspace' }, {
+      onStatus: setLiveStatus,
+      onReady: () => { void refreshWorkspaceForms(); refreshAll(); },
+      onChange: (event) => {
+        if (event.client_id === sheetbaseClientID) return;
+        if (event.scope === 'workspace') { void refreshWorkspaceForms(); return; }
+        const form = sheetFormRef.current;
+        if (!form || event.sheet_form_id !== form.id) return;
+        if (event.kind === 'schema_changed') refreshAll(); else void applyDatasetChange(form, event);
+      },
+    });
+  }, []);
+
+  const applyDatasetChange = async (form: SheetForm, event: ChangeEvent) => {
+    if (!event.row_id || sheetFormRef.current?.id !== form.id) return;
+    if (!liveEventTrackerRef.current.begin(event.row_id, event.id)) return;
+    const local = rowsRef.current.find((row) => row.id === event.row_id);
+    if (local?.dirty) {
+      setSaveState('error');
+      setSaveMessage('This row changed elsewhere — save or reload');
+      return;
+    }
+    const currentColumns = columnsRef.current;
+    if (event.kind === 'row_delete') {
+      setRows((current) => ensureBlankRow(current.filter((row) => row.id !== event.row_id), currentColumns));
+      setSaveMessage('Updated live');
+      return;
+    }
+    try {
+      const record = await getRow<Record<string, string | null>>(form.generated_table_name, event.row_id);
+      if (!record || sheetFormRef.current?.id !== form.id || !liveEventTrackerRef.current.isCurrent(event.row_id, event.id)) return;
+      const incoming = rowFromRecord(record, currentColumns);
+      setRows((current) => {
+        const index = current.findIndex((row) => row.id === incoming.id);
+        if (index >= 0 && current[index].dirty) {
+          queueMicrotask(() => { setSaveState('error'); setSaveMessage('This row changed elsewhere — save or reload'); });
+          return current;
+        }
+        if (index >= 0) return current.map((row, rowIndex) => rowIndex === index ? incoming : row);
+        const withoutEmptyDrafts = current.filter((row) => !row.id.startsWith('draft-') || Object.values(row.values).some((value) => value.trim() !== ''));
+        return ensureBlankRow([...withoutEmptyDrafts, incoming], currentColumns);
+      });
+      setSaveState('saved');
+      setSaveMessage('Updated live');
+    } catch {
+      if (!liveEventTrackerRef.current.isCurrent(event.row_id, event.id)) return;
+      setSaveState('error');
+      setSaveMessage('Could not apply a live update — resyncing');
+      if (liveRefreshTimerRef.current !== null) window.clearTimeout(liveRefreshTimerRef.current);
+      liveRefreshTimerRef.current = window.setTimeout(() => {
+        if (!rowsRef.current.some((row) => row.dirty)) void loadForm(form, () => sheetFormRef.current?.id !== form.id, true);
+      }, 250);
+    }
+  };
+
+  const refreshWorkspaceForms = async () => {
+    try {
+      const forms = await listSheetForms();
+      setSheetForms(forms);
+      const current = sheetFormRef.current;
+      if (!current) return;
+      const updated = forms.find((form) => form.id === current.id);
+      if (updated) {
+        setSheetForm(updated);
+        setFormName(updated.name);
+        return;
+      }
+      const replacement = forms.find((form) => !form.archived_at);
+      if (replacement) await loadForm(replacement); else createNewForm();
+    } catch { setLiveStatus('offline'); }
   };
 
   const hotData = useMemo(
@@ -392,6 +490,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       }
       nextRows[rowIndex] = {
         ...nextRows[rowIndex],
+        dirty: true,
         values: { ...nextRows[rowIndex].values, [columnKey]: value },
       };
       return ensureNextRow(nextRows);
@@ -432,7 +531,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setSaveState('saving');
       setSaveMessage('Deleting row');
       try {
-        await deleteRow(sheetForm.generated_table_name, target.id);
+        await deleteRow(sheetForm.generated_table_name, target.id, target.version);
       } catch (error) {
         setSaveState('error');
         setSaveMessage(error instanceof Error ? error.message : 'Could not delete row');
@@ -600,8 +699,10 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         return field ? { ...column, key: field.column_name, fieldId: field.id, type: field.type as FieldType } : column;
       });
       const changes = rowsToChanges(rows, activeColumns, fields, existingForm);
+      const updatedVersions = new Map<string, string>();
       for (const change of changes.updates) {
-        await updateRow(form.generated_table_name, change.id, change.values);
+        const [updated] = await updateRow<Record<string, string>>(form.generated_table_name, change.id, change.values, change.version);
+        if (updated?.updated_at) updatedVersions.set(change.id, updated.updated_at);
       }
       const insertedRows = changes.inserts.length > 0
         ? await insertRows<Record<string, string>>(form.generated_table_name, changes.inserts)
@@ -609,9 +710,12 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       await updateSheetViewColumnOrder(form.id, resolvedColumns.map((column) => column.key));
       setColumns(resolvedColumns);
       const insertedIds = new Map(changes.insertRowIds.map((rowId, index) => [rowId, insertedRows[index]?.id]));
+      const insertedVersions = new Map(changes.insertRowIds.map((rowId, index) => [rowId, insertedRows[index]?.updated_at]));
       setRows((currentRows) => currentRows.map((currentRow) => ({
         ...currentRow,
         id: insertedIds.get(currentRow.id) ?? currentRow.id,
+        version: insertedVersions.get(currentRow.id) ?? updatedVersions.get(currentRow.id) ?? currentRow.version,
+        dirty: false,
         values: Object.fromEntries(resolvedColumns.map((column, index) => [
           column.key,
           currentRow.values[activeColumns[index]?.key] ?? currentRow.values[column.key] ?? '',
@@ -1349,7 +1453,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           <footer className="table-statusbar" aria-label="Table status">
             <span>
               <span className={`status-dot ${backendStatus}`} aria-hidden="true" />
-              {backendStatus === 'offline' ? 'Offline draft' : sheetForm ? 'Connected to PostgreSQL' : 'Local draft'}
+              {backendStatus === 'offline' ? 'Offline draft' : sheetForm ? liveStatus === 'connected' ? 'Live with PostgreSQL' : liveStatus === 'offline' ? 'Reconnecting live updates' : 'Connecting live updates' : 'Local draft'}
             </span>
             <span>Changes save automatically</span>
             <span className="keyboard-hint"><kbd>↵</kbd> edit cell <kbd>Tab</kbd> move</span>
@@ -1408,12 +1512,12 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
 function rowsToChanges(rows: Row[], columns: Column[], fields: SheetField[], updateExisting: boolean) {
   const inserts: Record<string, string>[] = [];
   const insertRowIds: string[] = [];
-  const updates: Array<{ id: string; values: Record<string, string> }> = [];
+  const updates: Array<{ id: string; values: Record<string, string>; version?: string }> = [];
   for (const currentRow of rows) {
     const values = rowToPayload(currentRow, columns, fields);
     if (Object.keys(values).length === 0) continue;
     if (updateExisting && !currentRow.id.startsWith('draft-')) {
-      updates.push({ id: currentRow.id, values });
+      if (currentRow.dirty) updates.push({ id: currentRow.id, values, version: currentRow.version });
     } else {
       inserts.push(values);
       insertRowIds.push(currentRow.id);
@@ -1467,13 +1571,19 @@ function columnsFromFields(fields: SheetField[], widths: Record<string, number> 
 
 function rowsFromRecords(records: Record<string, string | null>[], columns: Column[], fields: SheetField[]): Row[] {
   const fieldsByColumn = new Map(fields.map((field) => [field.column_name, field]));
-  return records.map((record, index) => ({
+  return records.map((record, index) => rowFromRecord(record, columns, index, fieldsByColumn));
+}
+
+function rowFromRecord(record: Record<string, string | null>, columns: Column[], index = 0, fieldsByColumn?: Map<string, SheetField>): Row {
+  return {
     id: String(record.id ?? `row-${index + 1}`),
+    version: String(record.updated_at ?? ''),
+    dirty: false,
     values: Object.fromEntries(columns.map((column) => {
-      const field = fieldsByColumn.get(column.key);
-      return [column.key, String((field ? record[field.column_name] : '') ?? '')];
+      const field = fieldsByColumn?.get(column.key);
+      return [column.key, String((field ? record[field.column_name] : record[column.key]) ?? '')];
     })),
-  }));
+  };
 }
 
 function ensureBlankRow(rows: Row[], columns: Column[]): Row[] {

@@ -7,6 +7,7 @@ begin;
 \i /work/db/migrations/003_open_api_without_keys.sql
 \i /work/db/migrations/004_api_key_all_datasets.sql
 \i /work/db/migrations/005_sheet_form_lifecycle.sql
+\i /work/db/migrations/006_live_changes.sql
 
 insert into users (id, email, password_hash)
 values
@@ -265,6 +266,21 @@ begin
   if archived.archived_at is null then raise exception 'archive did not set archived_at'; end if;
   select * into archived from archive_sheet_form(form_id, false);
   if archived.archived_at is not null then raise exception 'restore did not clear archived_at'; end if;
+end;
+$$;
+
+do $$
+declare form_id uuid := (select id from created_form);
+begin
+  if not exists (select 1 from workspace_changes where scope = 'workspace' and sheet_form_id = form_id) then
+    raise exception 'workspace change was not recorded';
+  end if;
+  if not exists (select 1 from workspace_changes where scope = 'dataset' and sheet_form_id = form_id and kind = 'row_insert') then
+    raise exception 'row change was not recorded';
+  end if;
+  if not exists (select 1 from workspace_changes where scope = 'dataset' and sheet_form_id = form_id and kind = 'schema_changed') then
+    raise exception 'schema change was not recorded';
+  end if;
 end;
 $$;
 
