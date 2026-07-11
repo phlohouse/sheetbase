@@ -89,6 +89,19 @@ export async function renameSheetForm(
   });
 }
 
+export async function renameSheetField(
+  sheetFormId: string,
+  fieldId: string,
+  name: string,
+  fetcher: typeof fetch = fetch,
+): Promise<SheetField> {
+  return request<SheetField>(`${postgrestUrl}/rpc/rename_sheet_field`, fetcher, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    body: JSON.stringify({ sheet_form_id: sheetFormId, field_id: fieldId, name }),
+  });
+}
+
 export async function setSheetFormSlug(
   sheetFormId: string,
   slug: string,
@@ -211,6 +224,20 @@ export async function updateRow<T extends Record<string, unknown>>(
     },
     body: JSON.stringify(row),
   });
+}
+
+export async function deleteRow(
+  tableName: string,
+  id: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(`${postgrestUrl}/${encodeURIComponent(tableName)}?id=eq.${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).trim();
+    throw new Error(detail && detail !== '{}' ? detail : `PostgREST request failed: ${response.status}`);
+  }
 }
 
 async function request<T>(url: string, fetcher: typeof fetch, init?: RequestInit): Promise<T> {

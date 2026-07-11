@@ -1,4 +1,6 @@
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
   ChevronDown,
   CircleAlert,
@@ -6,6 +8,7 @@ import {
   Copy,
   Database,
   Download,
+  EyeOff,
   Import,
   LoaderCircle,
   Moon,
@@ -14,6 +17,7 @@ import {
   Sun,
   Table2,
   TerminalSquare,
+  X,
 } from 'lucide-react';
 import Handsontable from 'handsontable/base';
 import { registerAllModules } from 'handsontable/registry';
@@ -22,7 +26,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import 'handsontable/styles/handsontable.min.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
+import { addSheetField, createSheetForm, deleteRow, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetField, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 registerAllModules();
@@ -138,17 +142,24 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [slugDraft, setSlugDraft] = useState('');
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
   const [headerEditor, setHeaderEditor] = useState<{ columnIndex: number; left: number; top: number; width: number } | null>(null);
+  const [columnMenu, setColumnMenu] = useState<{ columnIndex: number; left: number; top: number } | null>(null);
   const hotRef = useRef<HotTableRef>(null);
   const headerInputRef = useRef<HTMLInputElement>(null);
   const apiSummaryRef = useRef<HTMLElement>(null);
   const stencilInputRef = useRef<HTMLInputElement>(null);
   const draftStartedRef = useRef(false);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const saveToAPIRef = useRef<() => Promise<void>>(async () => undefined);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.style.colorScheme = theme;
     storeTheme(theme);
   }, [theme]);
+
+  useEffect(() => () => {
+    if (autosaveTimerRef.current !== null) window.clearTimeout(autosaveTimerRef.current);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -238,10 +249,35 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     return nextRows;
   };
 
+  const scheduleAutosave = () => {
+    setSaveState('idle');
+    setSaveMessage('Unsaved changes');
+    if (autosaveTimerRef.current !== null) window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      void saveToAPIRef.current();
+    }, 900);
+  };
+
   const updateHeader = (columnIndex: number, label: string) => {
     setColumns((currentColumns) => currentColumns.map((column, index) => (
       index === columnIndex ? { ...column, label } : column
     )));
+    scheduleAutosave();
+  };
+
+  const openHeaderEditor = (columnIndex: number, headerCell: HTMLTableCellElement) => {
+    const frame = headerCell.closest<HTMLElement>('.table-frame');
+    if (!frame) return;
+    const headerRect = headerCell.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    setColumnMenu(null);
+    setHeaderEditor({
+      columnIndex,
+      left: headerRect.left - frameRect.left + frame.scrollLeft,
+      top: headerRect.top - frameRect.top + frame.scrollTop,
+      width: headerRect.width,
+    });
   };
 
   const renderEditableColumnHeader = (columnIndex: number, headerCell: HTMLTableCellElement) => {
@@ -250,26 +286,41 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     const column = columns[columnIndex];
     if (!labelElement || !column) return;
 
+    headerCell.dataset.sheetbaseColumnIndex = String(columnIndex);
     labelElement.classList.add('editable-column-header');
     labelElement.title = 'Double-click to rename';
+    const headerContent = headerCell.querySelector<HTMLElement>('.relative');
+    let menuButton = headerCell.querySelector<HTMLButtonElement>('.column-menu-trigger');
+    if (headerContent && !menuButton) {
+      menuButton = document.createElement('button');
+      menuButton.className = 'column-menu-trigger';
+      menuButton.type = 'button';
+      menuButton.innerHTML = '<span aria-hidden="true">•••</span>';
+      headerContent.append(menuButton);
+    }
+    if (menuButton) {
+      menuButton.setAttribute('aria-label', `Open ${column.label || `Field ${columnIndex + 1}`} column menu`);
+      menuButton.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const frame = headerCell.closest<HTMLElement>('.table-frame');
+        if (!frame) return;
+        const headerRect = headerCell.getBoundingClientRect();
+        const frameRect = frame.getBoundingClientRect();
+        setHeaderEditor(null);
+        setColumnMenu((current) => current?.columnIndex === columnIndex ? null : {
+          columnIndex,
+          left: Math.min(headerRect.left - frameRect.left + frame.scrollLeft, frame.clientWidth - 264),
+          top: headerRect.bottom - frameRect.top + frame.scrollTop + 4,
+        });
+      };
+    }
     const editableHeaderCell = headerCell as HTMLTableCellElement & { sheetbaseDblClick?: (event: MouseEvent) => void };
     editableHeaderCell.sheetbaseDblClick = (event) => {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      const frame = headerCell.closest<HTMLElement>('.table-frame');
-      if (!frame) return;
-      const headerRect = headerCell.getBoundingClientRect();
-      const frameRect = frame.getBoundingClientRect();
-      const editorPosition = {
-        columnIndex,
-        left: headerRect.left - frameRect.left + frame.scrollLeft,
-        top: headerRect.top - frameRect.top + frame.scrollTop,
-        width: headerRect.width,
-      };
-      requestAnimationFrame(() => {
-        setHeaderEditor(editorPosition);
-      });
+      openHeaderEditor(columnIndex, headerCell);
     };
     if (!headerCell.dataset.inlineEditBound) {
       headerCell.dataset.inlineEditBound = 'true';
@@ -299,19 +350,52 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       };
       return ensureNextRow(nextRows);
     });
+    scheduleAutosave();
   };
 
-  const addColumn = () => {
+  const addColumnAt = (targetIndex = columns.length) => {
     setColumns((currentColumns) => {
       const column = newColumn(currentColumns.length);
       setRows((currentRows) => currentRows.map((currentRow) => ({
         ...currentRow,
         values: { ...currentRow.values, [column.key]: '' },
       })));
-      requestAnimationFrame(() => hotRef.current?.hotInstance?.selectCell(0, currentColumns.length));
-      setActiveFieldIndex(currentColumns.length);
-      return [...currentColumns, column];
+      const nextColumns = [...currentColumns];
+      nextColumns.splice(targetIndex, 0, column);
+      requestAnimationFrame(() => hotRef.current?.hotInstance?.selectCell(0, targetIndex));
+      setActiveFieldIndex(targetIndex);
+      return nextColumns;
     });
+    scheduleAutosave();
+  };
+
+  const addColumn = () => addColumnAt(columns.length);
+
+  const insertRowAt = (rowIndex: number) => {
+    setRows((currentRows) => {
+      const nextRows = [...currentRows];
+      nextRows.splice(Math.max(0, rowIndex), 0, emptyRow(`draft-${Date.now()}`, columns));
+      return ensureNextRow(nextRows);
+    });
+  };
+
+  const removeRowAt = async (rowIndex: number) => {
+    const target = rows[rowIndex];
+    if (!target) return;
+    if (sheetForm && !target.id.startsWith('draft-')) {
+      setSaveState('saving');
+      setSaveMessage('Deleting row');
+      try {
+        await deleteRow(sheetForm.generated_table_name, target.id);
+      } catch (error) {
+        setSaveState('error');
+        setSaveMessage(error instanceof Error ? error.message : 'Could not delete row');
+        return;
+      }
+    }
+    setRows((currentRows) => ensureBlankRow(currentRows.filter((_, index) => index !== rowIndex), columns));
+    setSaveState('saved');
+    setSaveMessage('Row deleted');
   };
 
   const resizeColumn = async (columnIndex: number, delta: number) => {
@@ -342,6 +426,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     nextColumns.splice(targetIndex, 0, column);
     setColumns(nextColumns);
     setActiveFieldIndex((current) => (current === columnIndex ? targetIndex : current));
+    setColumnMenu((current) => current?.columnIndex === columnIndex ? { ...current, columnIndex: targetIndex } : current);
     if (!sheetForm) return;
 
     try {
@@ -369,6 +454,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setColumns(usableColumns);
       setRows((currentRows) => currentRows.map(removeColumnValue));
       setActiveFieldIndex(null);
+      setColumnMenu(null);
       setSaveState('idle');
       setSaveMessage('Local field removed');
       return;
@@ -381,6 +467,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setColumns(usableColumns);
       setRows((currentRows) => currentRows.map(removeColumnValue));
       setActiveFieldIndex(null);
+      setColumnMenu(null);
       setSaveState('saved');
       setSaveMessage('Field hidden');
     } catch (error) {
@@ -397,6 +484,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setColumns((currentColumns) => currentColumns.map((currentColumn, index) => (
         index === columnIndex ? { ...currentColumn, type: targetType } : currentColumn
       )));
+      scheduleAutosave();
       return;
     }
 
@@ -416,6 +504,10 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   };
 
   const saveToAPI = async () => {
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
     const activeColumns = columns;
     const headers = activeColumns.map((column) => column.label.trim()).filter(Boolean);
     const name = formName.trim();
@@ -445,15 +537,40 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         setSheetForm(form);
         setSheetForms((current) => current.map((existing) => (existing.id === form.id ? form : existing)));
       }
-      const loadedFields = await listSheetFields(form.id);
+      let loadedFields = await listSheetFields(form.id);
+      if (existingForm) {
+        for (const column of activeColumns) {
+          const existingField = column.fieldId ? loadedFields.find((field) => field.id === column.fieldId) : undefined;
+          if (existingField && column.label.trim() !== '' && existingField.name !== column.label.trim()) {
+            const renamedField = await renameSheetField(form.id, existingField.id, column.label.trim());
+            loadedFields = loadedFields.map((field) => field.id === renamedField.id ? renamedField : field);
+          }
+        }
+      }
       const fields = existingForm ? await ensureFields(form.id, headers, loadedFields) : loadedFields;
+      const fieldsByName = new Map(fields.map((field) => [field.name.trim().toLowerCase(), field]));
+      const resolvedColumns = activeColumns.map((column) => {
+        const field = fieldsByName.get(column.label.trim().toLowerCase());
+        return field ? { ...column, key: field.column_name, fieldId: field.id, type: field.type as FieldType } : column;
+      });
       const changes = rowsToChanges(rows, activeColumns, fields, existingForm);
       for (const change of changes.updates) {
         await updateRow(form.generated_table_name, change.id, change.values);
       }
-      if (changes.inserts.length > 0) {
-        await insertRows(form.generated_table_name, changes.inserts);
-      }
+      const insertedRows = changes.inserts.length > 0
+        ? await insertRows<Record<string, string>>(form.generated_table_name, changes.inserts)
+        : [];
+      await updateSheetViewColumnOrder(form.id, resolvedColumns.map((column) => column.key));
+      setColumns(resolvedColumns);
+      const insertedIds = new Map(changes.insertRowIds.map((rowId, index) => [rowId, insertedRows[index]?.id]));
+      setRows((currentRows) => currentRows.map((currentRow) => ({
+        ...currentRow,
+        id: insertedIds.get(currentRow.id) ?? currentRow.id,
+        values: Object.fromEntries(resolvedColumns.map((column, index) => [
+          column.key,
+          currentRow.values[activeColumns[index]?.key] ?? currentRow.values[column.key] ?? '',
+        ])),
+      })));
       setSaveState('saved');
       const savedCount = changes.inserts.length + changes.updates.length;
       setSaveMessage(savedCount === 1 ? 'Saved 1 row' : `Saved ${savedCount} rows`);
@@ -462,6 +579,8 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setSaveMessage(error instanceof Error ? error.message : 'Save failed');
     }
   };
+
+  saveToAPIRef.current = saveToAPI;
 
   const importStencilConfig = async (file: File | undefined) => {
     if (!file) return;
@@ -609,13 +728,44 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       ? 'Save needs attention'
       : saveState === 'saved'
         ? 'All changes saved'
-        : 'Local draft';
+        : saveMessage === 'Unsaved changes' ? 'Unsaved changes' : 'Local draft';
   const apiEndpoint = sheetForm ? apiURL(sheetForm.generated_table_name) : '';
   const apiRequests = sheetForm ? [
     { key: 'read', label: 'Read rows', method: 'GET', value: `GET /api/${sheetForm.generated_table_name}?select=*&limit=20` },
     { key: 'create', label: 'Create rows', method: 'POST', value: `POST /api/${sheetForm.generated_table_name}` },
     { key: 'metadata', label: 'Field metadata', method: 'GET', value: `GET /api/sheet_fields?sheet_form_id=eq.${sheetForm.id}&order=position.asc` },
   ] : [];
+  const selectedGridCell = () => hotRef.current?.hotInstance?.getSelectedLast() ?? null;
+  const gridContextMenu = {
+    items: {
+      insert_row_above: {
+        name: 'Insert row above',
+        callback: () => insertRowAt(selectedGridCell()?.[0] ?? 0),
+      },
+      insert_row_below: {
+        name: 'Insert row below',
+        callback: () => insertRowAt((selectedGridCell()?.[0] ?? 0) + 1),
+      },
+      remove_sheet_row: {
+        name: 'Delete row',
+        callback: () => void removeRowAt(selectedGridCell()?.[0] ?? -1),
+      },
+      row_separator: '---------',
+      add_sheet_field: {
+        name: 'Add field after',
+        callback: () => addColumnAt((selectedGridCell()?.[1] ?? columns.length - 1) + 1),
+      },
+      hide_sheet_field: {
+        name: 'Hide field',
+        callback: () => void hideColumn(selectedGridCell()?.[1] ?? -1),
+      },
+      edit_separator: '---------',
+      undo: { name: 'Undo' },
+      redo: { name: 'Redo' },
+      copy: { name: 'Copy' },
+      cut: { name: 'Cut' },
+    },
+  };
 
   return (
     <div className="app-shell">
@@ -689,7 +839,10 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             <Input
               aria-label="Sheet Form name"
               className="title-input"
-              onChange={(event) => setFormName(event.target.value)}
+              onChange={(event) => {
+                setFormName(event.target.value);
+                scheduleAutosave();
+              }}
               value={formName}
             />
           </div>
@@ -844,9 +997,21 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         ) : null}
 
         <section
-          className={`table-frame ${apiVisible ? 'with-api-summary' : ''}`}
+          className={`table-frame ${apiVisible ? 'with-api-summary' : ''} ${headerEditor ? 'is-editing-header' : ''}`}
           aria-label={`${formName || 'Untitled'} Sheet Form`}
           data-column-widths={columns.map((column) => column.width).join(',')}
+          onClickCapture={(event) => {
+            const target = event.target as HTMLElement;
+            if (target.closest('.column-menu-trigger')) return;
+            const label = target.closest<HTMLElement>('.editable-column-header');
+            const headerCell = label?.closest<HTMLTableCellElement>('th[data-sheetbase-column-index]');
+            if (!headerCell) return;
+            const columnIndex = Number(headerCell.dataset.sheetbaseColumnIndex);
+            if (!Number.isInteger(columnIndex)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            openHeaderEditor(columnIndex, headerCell);
+          }}
           style={{ colorScheme: theme }}
         >
           <HotTable
@@ -856,7 +1021,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             rowHeaders
             colHeaders={columns.map((column, index) => column.label || `Field ${index + 1}`)}
             colWidths={columns.map((column) => column.width)}
-            contextMenu
+            contextMenu={gridContextMenu}
             manualColumnMove
             manualColumnResize
             minSpareRows={1}
@@ -873,6 +1038,58 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               void persistColumnMove(movedColumns, finalIndex, orderChanged);
             }}
           />
+          {columnMenu && columns[columnMenu.columnIndex] ? (
+            <div
+              aria-label={`${columns[columnMenu.columnIndex].label || `Field ${columnMenu.columnIndex + 1}`} column settings`}
+              className="column-menu"
+              role="dialog"
+              style={{ left: columnMenu.left, top: columnMenu.top }}
+            >
+              <div className="column-menu-heading">
+                <div>
+                  <strong>Column settings</strong>
+                  <code>{columns[columnMenu.columnIndex].key}</code>
+                </div>
+                <Button aria-label="Close column settings" onClick={() => setColumnMenu(null)} type="button" variant="ghost" size="icon-xs">
+                  <X />
+                </Button>
+              </div>
+              <label>
+                Name
+                <input
+                  aria-label="Column name"
+                  onChange={(event) => updateHeader(columnMenu.columnIndex, event.target.value)}
+                  value={columns[columnMenu.columnIndex].label}
+                />
+              </label>
+              <label>
+                Type
+                <select
+                  aria-label="Column type"
+                  onChange={(event) => void tightenColumnType(columnMenu.columnIndex, event.target.value as FieldType)}
+                  value={dbFieldTypes.includes(columns[columnMenu.columnIndex].type as typeof dbFieldTypes[number]) ? columns[columnMenu.columnIndex].type : 'text'}
+                >
+                  {dbFieldTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              </label>
+              <div className="column-menu-meta">
+                <span>API field</span>
+                <code>{columns[columnMenu.columnIndex].key}</code>
+              </div>
+              <div className="column-menu-actions">
+                <Button aria-label="Move column left" disabled={columnMenu.columnIndex === 0} onClick={() => void moveColumn(columnMenu.columnIndex, -1)} type="button" variant="outline" size="icon-xs">
+                  <ArrowLeft />
+                </Button>
+                <Button aria-label="Move column right" disabled={columnMenu.columnIndex === columns.length - 1} onClick={() => void moveColumn(columnMenu.columnIndex, 1)} type="button" variant="outline" size="icon-xs">
+                  <ArrowRight />
+                </Button>
+                <Button className="column-menu-hide" onClick={() => void hideColumn(columnMenu.columnIndex)} type="button" variant="ghost" size="sm">
+                  <EyeOff data-icon="inline-start" />
+                  Hide field
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {headerEditor ? (
             <input
               ref={headerInputRef}
@@ -890,7 +1107,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                   finishHeaderEdit(false);
                 }
               }}
-              style={{ left: headerEditor.left, top: headerEditor.top + 5, width: Math.max(80, headerEditor.width - 8) }}
+              style={{ left: headerEditor.left, top: headerEditor.top, width: Math.max(80, headerEditor.width) }}
             />
           ) : null}
           <footer className="table-statusbar" aria-label="Table status">
@@ -898,7 +1115,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               <span className={`status-dot ${backendStatus}`} aria-hidden="true" />
               {backendStatus === 'offline' ? 'Offline draft' : sheetForm ? 'Connected to PostgreSQL' : 'Local draft'}
             </span>
-            <span>Changes save when you choose Save</span>
+            <span>Changes save automatically</span>
             <span className="keyboard-hint"><kbd>↵</kbd> edit cell <kbd>Tab</kbd> move</span>
           </footer>
           <div className="grid-a11y-mirror" aria-hidden="false">
@@ -952,6 +1169,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
 
 function rowsToChanges(rows: Row[], columns: Column[], fields: SheetField[], updateExisting: boolean) {
   const inserts: Record<string, string>[] = [];
+  const insertRowIds: string[] = [];
   const updates: Array<{ id: string; values: Record<string, string> }> = [];
   for (const currentRow of rows) {
     const values = rowToPayload(currentRow, columns, fields);
@@ -960,9 +1178,10 @@ function rowsToChanges(rows: Row[], columns: Column[], fields: SheetField[], upd
       updates.push({ id: currentRow.id, values });
     } else {
       inserts.push(values);
+      insertRowIds.push(currentRow.id);
     }
   }
-  return { inserts, updates };
+  return { inserts, insertRowIds, updates };
 }
 
 function apiURL(tableName: string) {

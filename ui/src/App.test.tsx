@@ -82,6 +82,46 @@ describe('App', () => {
     expect(screen.getAllByRole('columnheader', { name: 'Account' }).length).toBeGreaterThan(0);
   });
 
+  it('opens integrated column settings from the header', async () => {
+    const { container } = render(<App />);
+    const trigger = container.querySelector<HTMLButtonElement>('.ht_clone_top .column-menu-trigger');
+    expect(trigger).toBeTruthy();
+
+    fireEvent.click(trigger!);
+
+    const settings = await screen.findByRole('dialog', { name: 'Company column settings' });
+    expect(within(settings).getByLabelText('Column name')).toHaveProperty('value', 'Company');
+    expect(within(settings).getByLabelText('Column type')).toHaveProperty('value', 'text');
+    expect(within(settings).getAllByText('company').length).toBeGreaterThan(0);
+  });
+
+  it('autosaves edits after the debounce interval', async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+      const url = String(input);
+      if (url.includes('/rpc/create_sheet_form')) {
+        return new Response(JSON.stringify({ id: 'form-auto', slug: 'auto-draft', name: 'Auto Draft', generated_table_name: 'auto-draft' }), { status: 200 });
+      }
+      if (url.includes('/sheet_fields')) {
+        return new Response(JSON.stringify([
+          { id: 'field-1', name: 'Name', column_name: 'name', position: 0, type: 'text', hidden: false },
+        ]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }));
+
+    render(<App />);
+    await screen.findByDisplayValue('Untitled Sheet Form');
+    fireEvent.change(screen.getByLabelText('Header 1'), { target: { value: 'Name' } });
+    fireEvent.change(screen.getByLabelText('Sheet Form name'), { target: { value: 'Auto Draft' } });
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.input.includes('/rpc/create_sheet_form'))).toBe(true);
+    }, { timeout: 2500 });
+  });
+
   it('keeps the sidebar to working actions', async () => {
     render(<App />);
 

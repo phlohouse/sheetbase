@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetForm, setSheetFormSlug, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
+import { addSheetField, createSheetForm, deleteRow, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetField, renameSheetForm, setSheetFormSlug, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 
 describe('api client', () => {
   it('uses PostgREST endpoints for forms, fields, RPC, and generated rows', async () => {
@@ -23,6 +23,8 @@ describe('api client', () => {
     await insertRows('sheet_abc', [{ company: 'Acme' }], fetcher);
     await updateRow('sheet_abc', 'row-1', { company: 'Acme Labs' }, fetcher);
     await setSheetFormSlug('form-1', 'companies-public', fetcher);
+    await deleteRow('sheet_abc', 'row-1', fetcher);
+    await renameSheetField('form-1', 'field-1', 'Account', fetcher);
 
     expect(calls[0].input).toContain('/sheet_forms?select=*&order=created_at.desc');
     expect(calls[1].input).toContain('/sheet_fields?sheet_form_id=eq.form-1');
@@ -44,8 +46,10 @@ describe('api client', () => {
     expect(calls[7].init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', field_id: 'field-2', target_type: 'integer' }));
     expect(calls[8].input).toContain('/rpc/update_sheet_view_widths');
     expect(calls[8].init?.method).toBe('POST');
-    expect(calls.at(-1)?.input).toContain('/rpc/set_sheet_form_slug');
-    expect(calls.at(-1)?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', slug: 'companies-public' }));
+    expect(calls.at(-3)?.input).toContain('/rpc/set_sheet_form_slug');
+    expect(calls.at(-3)?.init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', slug: 'companies-public' }));
+    expect(calls.at(-2)?.init?.method).toBe('DELETE');
+    expect(calls.at(-1)?.input).toContain('/rpc/rename_sheet_field');
     expect(calls[8].init?.body).toBe(JSON.stringify({ sheet_form_id: 'form-1', widths: { company: 220 } }));
     expect(calls[9].input).toContain('/rpc/update_sheet_view_column_order');
     expect(calls[9].init?.method).toBe('POST');

@@ -437,6 +437,32 @@ begin
 end;
 $$;
 
+create or replace function rename_sheet_field(sheet_form_id uuid, field_id uuid, name text)
+returns sheet_fields
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  field_row sheet_fields;
+begin
+  if name is null or trim(name) = '' then
+    raise exception 'field name is required';
+  end if;
+  if not can_access_sheet_form(sheet_form_id, 'admin') then
+    raise exception 'permission denied for sheet form %', sheet_form_id;
+  end if;
+  update sheet_fields
+  set name = trim(rename_sheet_field.name)
+  where id = field_id and sheet_fields.sheet_form_id = rename_sheet_field.sheet_form_id
+  returning * into field_row;
+  if not found then
+    raise exception 'field % not found', field_id;
+  end if;
+  return field_row;
+end;
+$$;
+
 create or replace function hide_sheet_field(sheet_form_id uuid, field_id uuid)
 returns sheet_fields
 language plpgsql
@@ -667,6 +693,7 @@ grant select on sheet_forms, sheet_fields, sheet_views to sheetbase_api;
 grant execute on function create_sheet_form(text, text[]) to sheetbase_api;
 grant execute on function add_sheet_field(uuid, text) to sheetbase_api;
 grant execute on function rename_sheet_form(uuid, text) to sheetbase_api;
+grant execute on function rename_sheet_field(uuid, uuid, text) to sheetbase_api;
 grant execute on function set_sheet_form_slug(uuid, text) to sheetbase_api;
 grant execute on function hide_sheet_field(uuid, uuid) to sheetbase_api;
 grant execute on function tighten_sheet_field_type(uuid, uuid, text) to sheetbase_api;
