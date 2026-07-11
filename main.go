@@ -42,6 +42,10 @@ func run(args []string) error {
 		return serve(args[1:])
 	case "run":
 		return runManagedApp(args[1:])
+	case "up":
+		return upApp(args[1:])
+	case "down":
+		return downApp(args[1:])
 	case "start":
 		return startApp(args[1:])
 	case "stop":
@@ -197,6 +201,8 @@ Usage:
   sheetbase init [--home DIR]
   sheetbase serve [--home DIR] [-addr :8080] [-postgrest-url http://127.0.0.1:3000] [-db-url postgres://...]
   sheetbase run [--home DIR] [-addr :8080]
+  sheetbase up [--home DIR] [-addr :8080]
+  sheetbase down [--home DIR]
   sheetbase start [--home DIR]
   sheetbase stop [--home DIR]
   sheetbase restart [--home DIR]
@@ -214,6 +220,8 @@ Commands:
   init    Create the Sheetbase home directory and config
   serve   Serve the embedded UI
   run     Start managed services and serve the UI
+  up      Start PostgreSQL, PostgREST, and Sheetbase in the background
+  down    Stop all three background services
   start   Start managed PostgreSQL and PostgREST processes
   stop    Stop managed PostgreSQL and PostgREST processes
   migrate Apply embedded database migrations

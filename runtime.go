@@ -593,13 +593,17 @@ func nativeProcessStatus(pidFile string) processStatus {
 }
 
 func startDetached(binary string, args []string, env []string, logPath, pidPath string) error {
+	return startDetachedWithEnvironment(binary, args, append(os.Environ(), env...), logPath, pidPath)
+}
+
+func startDetachedWithEnvironment(binary string, args, environment []string, logPath, pidPath string) error {
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	defer log.Close()
 	cmd := exec.Command(binary, args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = environment
 	cmd.Stdout = log
 	cmd.Stderr = log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -611,6 +615,21 @@ func startDetached(binary string, args []string, env []string, logPath, pidPath 
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+func acquireProcessLock(path string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+		return nil, errors.New("another Sheetbase lifecycle command is already running")
+	}
+	return func() { _ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN); _ = file.Close() }, nil
 }
 
 func nativeEnv(native nativeRuntime) []string {

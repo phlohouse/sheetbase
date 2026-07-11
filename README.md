@@ -19,6 +19,8 @@ Useful commands:
 
 - `make ui-build`: build the React UI into `ui/dist`
 - `make dev-services`: start or repair the project-local PostgreSQL and PostgREST services without starting the web app
+- `make up`: start PostgreSQL, PostgREST, and Sheetbase in the background
+- `make down`: stop all three background processes
 - `make test`: build the UI and run Go tests
 - `make verify`: run unit, Docker, app/auth, managed lifecycle, and release smoke checks
 - `make db-test`: run PostgreSQL schema tests in Docker
@@ -34,6 +36,8 @@ Useful commands:
 - `go run . init --home .sheetbase`: create a local Sheetbase home
 - `go run . runtime install --home .sheetbase`: download or refresh the pinned native runtime
 - `go run . start --home .sheetbase`: install if needed and start native PostgreSQL and PostgREST
+- `go run . up --home .sheetbase`: start PostgreSQL, PostgREST, and the web app in the background
+- `go run . down --home .sheetbase`: stop all three background processes
 - `go run . doctor --home .sheetbase`: check required external commands
 - `go run . migrate --home .sheetbase`: apply embedded database migrations
 - `go run . upgrade --home .sheetbase`: apply embedded database migrations during upgrade

@@ -152,6 +152,65 @@ func TestHTTPHealthyChecksHealthz(t *testing.T) {
 	}
 }
 
+func TestDisplayAppURL(t *testing.T) {
+	for input, want := range map[string]string{
+		":8080":          "http://127.0.0.1:8080",
+		"127.0.0.1:9000": "http://127.0.0.1:9000",
+	} {
+		if got := displayAppURL(input); got != want {
+			t.Fatalf("displayAppURL(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestBackgroundAppStatusIdentifiesUnmanagedServer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	cfg := appConfig{appAddr: strings.TrimPrefix(server.URL, "http://")}
+	if got := backgroundAppStatus(newAppPaths(t.TempDir()), cfg); !strings.HasPrefix(got, "running unmanaged") {
+		t.Fatalf("status = %q", got)
+	}
+}
+
+func TestBackgroundServeArgsPreserveExplicitEmptyDBURL(t *testing.T) {
+	paths := newAppPaths(t.TempDir())
+	args := backgroundServeArgs(paths, appConfig{}, []string{"--db-url", ""})
+	want := []string{"serve", "--home", paths.home, "--db-url", ""}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+}
+
+func TestSheetbaseChildEnvironmentRemovesConfigurationOverrides(t *testing.T) {
+	t.Setenv("SHEETBASE_ADDR", ":9999")
+	t.Setenv("UNRELATED_VALUE", "kept")
+	env := strings.Join(sheetbaseChildEnvironment(), "\n")
+	if strings.Contains(env, "SHEETBASE_ADDR=") {
+		t.Fatalf("environment leaked Sheetbase override:\n%s", env)
+	}
+	if !strings.Contains(env, "UNRELATED_VALUE=kept") {
+		t.Fatalf("environment removed unrelated value:\n%s", env)
+	}
+}
+
+func TestAcquireProcessLockRejectsConcurrentLifecycle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run", "lifecycle.lock")
+	release, err := acquireProcessLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if _, err := acquireProcessLock(path); err == nil {
+		t.Fatal("expected concurrent lock to fail")
+	}
+}
+
 func TestParseAppConfigUsesEnvironmentDefaults(t *testing.T) {
 	t.Setenv("SHEETBASE_HOME", filepath.Join(t.TempDir(), "sheetbase"))
 	t.Setenv("SHEETBASE_POSTGRES_PORT", "55444")

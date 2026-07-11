@@ -44,8 +44,11 @@ type appPaths struct {
 	run             string
 	postgresPID     string
 	postgrestPID    string
+	appPID          string
 	postgresLog     string
 	postgrestLog    string
+	appProcessLog   string
+	lifecycleLock   string
 }
 
 func initApp(args []string) error {
@@ -104,6 +107,149 @@ func runManagedApp(args []string) error {
 		return err
 	}
 	return serve(args)
+}
+
+func upApp(args []string) (err error) {
+	cfg, err := parseAppConfig("up", args)
+	if err != nil {
+		return err
+	}
+	paths := newAppPaths(cfg.home)
+	release, err := acquireProcessLock(paths.lifecycleLock)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if nativeProcessStatus(paths.appPID).Running {
+		if httpHealthy(cfg.appAddr) {
+			fmt.Printf("Sheetbase is already running in the background at %s\n", displayAppURL(cfg.appAddr))
+			return nil
+		}
+		if err := stopNativeProcess(paths.appPID); err != nil {
+			return err
+		}
+	} else if httpHealthy(cfg.appAddr) {
+		return fmt.Errorf("%s is already served by an unmanaged process", displayAppURL(cfg.appAddr))
+	}
+	postgresWasRunning, postgrestWasRunning := managedServiceState(paths, cfg)
+	rollback := func() { rollbackStartedServices(paths, cfg, postgresWasRunning, postgrestWasRunning) }
+	if err := startApp(args); err != nil {
+		rollback()
+		return err
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		rollback()
+		return fmt.Errorf("find Sheetbase executable: %w", err)
+	}
+	appArgs := backgroundServeArgs(paths, cfg, args)
+	if err := startDetachedWithEnvironment(executable, appArgs, sheetbaseChildEnvironment(), paths.appProcessLog, paths.appPID); err != nil {
+		rollback()
+		return fmt.Errorf("start Sheetbase web server: %w", err)
+	}
+	if err := waitForManagedApp(paths.appPID, cfg.appAddr, 10*time.Second); err != nil {
+		_ = stopNativeProcess(paths.appPID)
+		_ = os.Remove(paths.appPID)
+		rollback()
+		return fmt.Errorf("Sheetbase web server did not become ready; see %s: %w", paths.appProcessLog, err)
+	}
+	fmt.Printf("Sheetbase is running in the background at %s\n", displayAppURL(cfg.appAddr))
+	return nil
+}
+
+func downApp(args []string) error {
+	cfg, err := parseAppConfig("down", args)
+	if err != nil {
+		return err
+	}
+	paths := newAppPaths(cfg.home)
+	release, err := acquireProcessLock(paths.lifecycleLock)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := stopNativeProcess(paths.appPID); err != nil {
+		return err
+	}
+	return stopApp(args)
+}
+
+func backgroundServeArgs(paths appPaths, cfg appConfig, parentArgs []string) []string {
+	args := []string{"serve", "--home", paths.home}
+	if hasFlag(parentArgs, "db-url") {
+		args = append(args, "--db-url", cfg.dbURL)
+	}
+	return args
+}
+
+func sheetbaseChildEnvironment() []string {
+	var clean []string
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "SHEETBASE_") {
+			clean = append(clean, value)
+		}
+	}
+	return clean
+}
+
+func managedServiceState(paths appPaths, cfg appConfig) (bool, bool) {
+	if cfg.runtimeMode == "native" {
+		return nativeProcessStatus(paths.postgresPID).Running, nativeProcessStatus(paths.postgrestPID).Running
+	}
+	return containerStatus(containerName("postgres", paths)).Running, containerStatus(containerName("postgrest", paths)).Running
+}
+
+func rollbackStartedServices(paths appPaths, cfg appConfig, postgresWasRunning, postgrestWasRunning bool) {
+	if cfg.runtimeMode == "native" {
+		if !postgrestWasRunning {
+			_ = stopNativeProcess(paths.postgrestPID)
+		}
+		if !postgresWasRunning {
+			_ = stopNativeProcess(paths.postgresPID)
+		}
+		return
+	}
+	if !postgrestWasRunning {
+		_ = dockerRm(containerName("postgrest", paths))
+	}
+	if !postgresWasRunning {
+		_ = dockerRm(containerName("postgres", paths))
+	}
+}
+
+func waitForManagedApp(pidFile, addr string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !nativeProcessStatus(pidFile).Running {
+			return errors.New("managed Sheetbase process exited")
+		}
+		if httpHealthy(addr) {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("health check did not pass within %s", timeout)
+}
+
+func backgroundAppStatus(paths appPaths, cfg appConfig) string {
+	status := nativeProcessStatus(paths.appPID)
+	if status.Running && httpHealthy(cfg.appAddr) {
+		return fmt.Sprintf("running pid=%d addr=%s", status.PID, cfg.appAddr)
+	}
+	if status.Running {
+		return fmt.Sprintf("unhealthy pid=%d addr=%s", status.PID, cfg.appAddr)
+	}
+	if httpHealthy(cfg.appAddr) {
+		return "running unmanaged addr=" + cfg.appAddr
+	}
+	return "stopped"
+}
+
+func displayAppURL(addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return "http://127.0.0.1" + addr
+	}
+	return "http://" + addr
 }
 
 func migrateApp(args []string) (err error) {
@@ -167,10 +313,11 @@ func statusApp(args []string) (err error) {
 		return err
 	}
 	defer beginCommandLog("status", paths)(&err)
+	appStatus := backgroundAppStatus(paths, cfg)
 	if cfg.runtimeMode == "native" {
 		fmt.Printf("home: %s\n", paths.home)
 		fmt.Printf("runtime: native\n")
-		fmt.Printf("app: %s\n", statusText(httpHealthy(cfg.appAddr)))
+		fmt.Printf("app: %s\n", appStatus)
 		fmt.Printf("postgres: %s\n", nativeStatusLine(nativeProcessStatus(paths.postgresPID), postgresVersion, cfg.postgresPort))
 		fmt.Printf("postgrest: %s\n", nativeStatusLine(nativeProcessStatus(paths.postgrestPID), postgrestVersion, cfg.postgrestPort))
 		fmt.Printf("logs: %s\n", paths.logs)
@@ -179,7 +326,7 @@ func statusApp(args []string) (err error) {
 	postgres := containerStatus(containerName("postgres", paths))
 	postgrest := containerStatus(containerName("postgrest", paths))
 	fmt.Printf("home: %s\n", paths.home)
-	fmt.Printf("app: %s\n", statusText(httpHealthy(cfg.appAddr)))
+	fmt.Printf("app: %s\n", appStatus)
 	fmt.Printf("postgres: %s\n", postgres.Line())
 	fmt.Printf("postgrest: %s\n", postgrest.Line())
 	fmt.Printf("logs: %s\n", paths.logs)
@@ -249,8 +396,11 @@ func newAppPaths(home string) appPaths {
 		run:             filepath.Join(home, "run"),
 		postgresPID:     filepath.Join(home, "run", "postgres.pid"),
 		postgrestPID:    filepath.Join(home, "run", "postgrest.pid"),
+		appPID:          filepath.Join(home, "run", "sheetbase.pid"),
 		postgresLog:     filepath.Join(home, "logs", "postgres.log"),
 		postgrestLog:    filepath.Join(home, "logs", "postgrest.log"),
+		appProcessLog:   filepath.Join(home, "logs", "sheetbase-server.log"),
+		lifecycleLock:   filepath.Join(home, "run", "lifecycle.lock"),
 	}
 }
 
@@ -358,7 +508,9 @@ SHEETBASE_POSTGRES_PORT=%s
 SHEETBASE_POSTGREST_PORT=%s
 SHEETBASE_JWT_SECRET=%s
 SHEETBASE_RUNTIME=%s
-`, cfg.appAddr, cfg.postgresPort, cfg.postgrestPort, cfg.jwtSecret, cfg.runtimeMode)
+SHEETBASE_POSTGREST_URL=%s
+SHEETBASE_DB_URL=%s
+`, cfg.appAddr, cfg.postgresPort, cfg.postgrestPort, cfg.jwtSecret, cfg.runtimeMode, cfg.postgrestURL, cfg.dbURL)
 	return os.WriteFile(paths.sheetbaseConfig, []byte(config), 0o600)
 }
 
