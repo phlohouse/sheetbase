@@ -108,7 +108,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture.
 Sheetbase has two independent auth systems:
 
 - **Admin sessions** (browser): email/password sign-in with a signed `sheetbase_session` cookie. Endpoints: `POST /auth/setup`, `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`
-- **API keys** (programmatic): scoped to one Sheet Form, read or read+write. Send via `X-API-Key` or `Authorization: Bearer` header. Create and revoke from the API panel or `POST /admin/api-keys`
+- **API keys** (programmatic): scoped to selected datasets or all current and future datasets, read or read+write. Send via `X-API-Key` or `Authorization: Bearer`. Manage them from the dedicated Access page.
 
 The browser uses a private `/internal` proxy (cookie auth). Public `/api` requests require an API key; session cookies are ignored on that route.
 

@@ -83,7 +83,7 @@ Stop managed PostgreSQL and PostgREST processes.
 sheetbase restart [--home DIR]
 ```
 
-Stop and then start managed services.
+Restart PostgreSQL and PostgREST. When Sheetbase is running through `up`, restart the background web server as well so all three processes use the current executable.
 
 ### `migrate`
 

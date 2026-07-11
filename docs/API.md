@@ -150,7 +150,7 @@ Response: `204 No Content`. Returns `404 Not Found` if the key does not exist or
 
 ## Data API (`/api/*`)
 
-Public API requests require a scoped API key. Send it in either header:
+Public API requests are open while the workspace has no active API keys. Once the first key is created, send a scoped key in either header:
 
 ```
 X-API-Key: sbk_abcdef1234567890...
@@ -164,25 +164,25 @@ Authorization: Bearer sbk_abcdef1234567890...
 
 Sheetbase cookies are ignored on `/api` routes. The key is validated, a short-lived JWT is issued, and the request is proxied to PostgREST with standard PostgREST query syntax.
 
-### Querying Generated Tables
+### Querying Datasets by Slug
 
-Generated Tables are named after the Sheet Form's slug (e.g., `sheet_companies`):
+Public dataset routes use the editable Sheet Form slug (e.g., `companies`). Sheetbase resolves that stable route to the physical PostgreSQL table:
 
 ```sh
 # List all rows
-curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/sheet_companies'
+curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/companies'
 
 # Select specific columns
-curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/sheet_companies?select=name,website'
+curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/companies?select=name,website'
 
 # Filter
-curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/sheet_companies?name=eq.Acme%20Labs'
+curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/companies?name=eq.Acme%20Labs'
 
 # Paginate
-curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/sheet_companies?limit=20&offset=40'
+curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/companies?limit=20&offset=40'
 
 # Order
-curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/sheet_companies?order=created_at.desc'
+curl -H "X-API-Key: $KEY" 'http://localhost:8080/api/companies?order=created_at.desc'
 ```
 
 ### Querying Control Tables
@@ -225,19 +225,19 @@ curl -X POST http://localhost:8080/api/rpc/tighten_sheet_field_type \
 
 ```sh
 # Insert a row
-curl -X POST http://localhost:8080/api/sheet_companies \
+curl -X POST http://localhost:8080/api/companies \
   -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' \
   -d '{"name":"Acme Labs","website":"https://acme.example.com","employees":"50"}'
 
 # Update a row
-curl -X PATCH http://localhost:8080/api/sheet_companies?id=eq.uuid \
+curl -X PATCH http://localhost:8080/api/companies?id=eq.uuid \
   -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' \
   -d '{"employees":"51"}'
 
 # Delete a row (requires write access)
-curl -X DELETE http://localhost:8080/api/sheet_companies?id=eq.uuid \
+curl -X DELETE http://localhost:8080/api/companies?id=eq.uuid \
   -H "X-API-Key: $KEY"
 ```
 

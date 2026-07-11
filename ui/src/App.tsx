@@ -20,6 +20,9 @@ import {
   Table2,
   TerminalSquare,
   Trash2,
+  Archive,
+  ArchiveRestore,
+  MoreHorizontal,
   X,
 } from 'lucide-react';
 import Handsontable from 'handsontable/base';
@@ -30,7 +33,7 @@ import { Popover } from 'radix-ui';
 import 'handsontable/styles/handsontable.min.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { addSheetField, createSheetForm, deleteRow, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetField, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
+import { addSheetField, archiveSheetForm, createSheetForm, deleteRow, deleteSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetField, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
 import { createAPIKey, listAPIKeys, revokeAPIKey, updateAPIKeyAccess, type APIKeyRecord } from './api-keys';
 
@@ -138,6 +141,9 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [rows, setRows] = useState(initialRows);
   const [sheetForm, setSheetForm] = useState<SheetForm | null>(null);
   const [sheetForms, setSheetForms] = useState<SheetForm[]>([]);
+  const [formQuery, setFormQuery] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [pendingFormDelete, setPendingFormDelete] = useState<string | null>(null);
   const [formName, setFormName] = useState('Companies');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('Local draft');
@@ -665,6 +671,38 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     requestAnimationFrame(() => hotRef.current?.hotInstance?.selectCell(0, 0));
   };
 
+  const setFormArchived = async (form: SheetForm, archived: boolean) => {
+    try {
+      const updated = await archiveSheetForm(form.id, archived);
+      const next = sheetForms.map((item) => item.id === updated.id ? updated : item);
+      setSheetForms(next);
+      if (archived && sheetForm?.id === form.id) {
+        const replacement = next.find((item) => !item.archived_at && item.id !== form.id);
+        if (replacement) await loadForm(replacement); else createNewForm();
+      }
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not update Sheet Form');
+    }
+  };
+
+  const removeForm = async (form: SheetForm) => {
+    if (pendingFormDelete !== form.id) { setPendingFormDelete(form.id); return; }
+    try {
+      await deleteSheetForm(form.id);
+      const next = sheetForms.filter((item) => item.id !== form.id);
+      setSheetForms(next);
+      setPendingFormDelete(null);
+      if (sheetForm?.id === form.id) {
+        const replacement = next.find((item) => !item.archived_at);
+        if (replacement) await loadForm(replacement); else createNewForm();
+      }
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not delete Sheet Form');
+    }
+  };
+
   const showAPIEndpoint = () => {
     if (apiVisible) {
       setApiVisible(false);
@@ -672,7 +710,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       return;
     }
     setSaveMessage(sheetForm
-      ? `API URL: ${apiURL(sheetForm.generated_table_name)}`
+      ? `API URL: ${apiURL(sheetForm.slug)}`
       : 'Save this Sheet Form to create its API endpoint');
     setApiVisible(true);
     window.history.replaceState(null, '', '#api');
@@ -832,10 +870,14 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       : saveState === 'saved'
         ? 'All changes saved'
         : saveMessage === 'Unsaved changes' ? 'Unsaved changes' : 'Local draft';
-  const apiEndpoint = sheetForm ? apiURL(sheetForm.generated_table_name) : '';
+  const apiEndpoint = sheetForm ? apiURL(sheetForm.slug) : '';
+  const normalizedFormQuery = formQuery.trim().toLowerCase();
+  const activeSheetForms = sheetForms.filter((form) => !form.archived_at);
+  const visibleSheetForms = activeSheetForms.filter((form) => !normalizedFormQuery || form.name.toLowerCase().includes(normalizedFormQuery));
+  const archivedSheetForms = sheetForms.filter((form) => form.archived_at && (!normalizedFormQuery || form.name.toLowerCase().includes(normalizedFormQuery)));
   const apiRequests = sheetForm ? [
-    { key: 'read', label: 'Read rows', method: 'GET', path: `/api/${sheetForm.generated_table_name}?select=*&limit=20` },
-    { key: 'create', label: 'Create rows', method: 'POST', path: `/api/${sheetForm.generated_table_name}` },
+    { key: 'read', label: 'Read rows', method: 'GET', path: `/api/${sheetForm.slug}?select=*&limit=20` },
+    { key: 'create', label: 'Create rows', method: 'POST', path: `/api/${sheetForm.slug}` },
     { key: 'metadata', label: 'Field metadata', method: 'GET', path: `/api/sheet_fields?sheet_form_id=eq.${sheetForm.id}&order=position.asc` },
   ] : [];
   const selectedGridCell = () => hotRef.current?.hotInstance?.getSelectedLast() ?? null;
@@ -886,30 +928,24 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           <div className="section-title">
             <ChevronDown size={14} />
             Sheet Forms
-            <span className="section-count">{sheetForms.length || 1}</span>
+            <span className="section-count">{sheetForms.filter((form) => !form.archived_at).length || 1}</span>
           </div>
           <Button aria-label="New form" className="nav-action new-form-action" onClick={createNewForm} title="New Sheet Form" type="button" variant="ghost" size="sm">
             <Plus data-icon="inline-start" />
             <span>New Sheet Form</span>
           </Button>
+          {sheetForms.length > 8 ? <label className="form-search"><Search aria-hidden="true" /><input aria-label="Search Sheet Forms" onChange={(event) => setFormQuery(event.target.value)} placeholder="Find a form" value={formQuery} /></label> : null}
           <div className="form-list">
-            {(sheetForms.length > 0 ? sheetForms : [{ id: 'draft', name: formName } as SheetForm]).map((form) => (
-              <a
-                className={!apiKeysPage && (sheetForm?.id === form.id || (form.id === 'draft' && !sheetForm)) ? 'active' : ''}
-                href={`#${form.name}`}
-                key={form.id}
-                title={form.name}
-                onClick={(event) => {
-                  event.preventDefault();
-                  setAPIKeysPage(false);
-                  window.history.replaceState(null, '', `#${encodeURIComponent(form.name)}`);
-                  if (form.id !== 'draft') void loadForm(form);
-                }}
-              >
-                <Table2 size={15} />
-                <span>{form.name}</span>
-              </a>
+            {(sheetForms.length > 0 ? visibleSheetForms : [{ id: 'draft', name: formName } as SheetForm]).map((form) => (
+              <div className="form-nav-row" key={form.id}>
+                <a className={!apiKeysPage && (sheetForm?.id === form.id || (form.id === 'draft' && !sheetForm)) ? 'active' : ''} href={`#${form.name}`} title={form.name} onClick={(event) => { event.preventDefault(); setAPIKeysPage(false); window.history.replaceState(null, '', `#${encodeURIComponent(form.name)}`); if (form.id !== 'draft') void loadForm(form); }}>
+                  <Table2 size={15} /><span>{form.name}</span>
+                </a>
+                {form.id !== 'draft' ? <Popover.Root onOpenChange={(open) => { if (!open) setPendingFormDelete(null); }}><Popover.Trigger asChild><button aria-label={`Manage ${form.name}`} className="form-nav-menu" type="button"><MoreHorizontal /></button></Popover.Trigger><Popover.Portal><Popover.Content align="start" className="form-menu" side="right" sideOffset={6}><button onClick={() => void setFormArchived(form, true)} type="button"><Archive />Archive</button><button className={pendingFormDelete === form.id ? 'confirm-delete' : ''} onClick={() => void removeForm(form)} type="button"><Trash2 />{pendingFormDelete === form.id ? 'Delete permanently' : 'Delete'}</button></Popover.Content></Popover.Portal></Popover.Root> : null}
+              </div>
             ))}
+            {archivedSheetForms.length > 0 || sheetForms.some((form) => form.archived_at) ? <button className="archived-toggle" onClick={() => setShowArchived((current) => !current)} type="button"><ChevronDown className={showArchived ? '' : 'collapsed'} />Archived<span>{sheetForms.filter((form) => form.archived_at).length}</span></button> : null}
+            {showArchived ? archivedSheetForms.map((form) => <div className="form-nav-row archived" key={form.id}><span className="archived-name"><Archive />{form.name}</span><button aria-label={`Restore ${form.name}`} className="form-nav-menu visible" onClick={() => void setFormArchived(form, false)} title="Restore" type="button"><ArchiveRestore /></button></div>) : null}
           </div>
         </div>
 
@@ -979,8 +1015,8 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                     <Popover.Portal><Popover.Content align="end" className="api-key-dataset-popover" sideOffset={4}>
                       <div className="api-key-dataset-search"><Search aria-hidden="true" /><input aria-label="Search datasets" onChange={(event) => setAPIKeyDatasetQuery(event.target.value)} placeholder="Find a dataset" value={apiKeyDatasetQuery} /></div>
                       <div aria-label="Datasets" className="api-key-dataset-options">
-                        <label className="api-key-all-datasets"><input checked={apiKeyAllSheetForms} onChange={(event) => { setAPIKeyAllSheetForms(event.target.checked); if (event.target.checked) setAPIKeySheetFormIds(sheetForms.map((form) => form.id)); }} type="checkbox" /><span><strong>All datasets</strong><small>Includes datasets created later</small></span>{apiKeyAllSheetForms ? <Check aria-hidden="true" /> : null}</label>
-                        {sheetForms.filter((form) => form.name.toLowerCase().includes(apiKeyDatasetQuery.trim().toLowerCase())).map((form) => { const checked = apiKeySheetFormIds.includes(form.id); return <label key={form.id}><input checked={checked} onChange={(event) => { setAPIKeyAllSheetForms(false); setAPIKeySheetFormIds((current) => event.target.checked ? [...current, form.id] : current.filter((id) => id !== form.id)); }} type="checkbox" /><span>{form.name}</span>{checked ? <Check aria-hidden="true" /> : null}</label>; })}
+                        <label className="api-key-all-datasets"><input checked={apiKeyAllSheetForms} onChange={(event) => { setAPIKeyAllSheetForms(event.target.checked); if (event.target.checked) setAPIKeySheetFormIds(activeSheetForms.map((form) => form.id)); }} type="checkbox" /><span><strong>All datasets</strong><small>Includes datasets created later</small></span>{apiKeyAllSheetForms ? <Check aria-hidden="true" /> : null}</label>
+                        {activeSheetForms.filter((form) => form.name.toLowerCase().includes(apiKeyDatasetQuery.trim().toLowerCase())).map((form) => { const checked = apiKeySheetFormIds.includes(form.id); return <label key={form.id}><input checked={checked} onChange={(event) => { setAPIKeyAllSheetForms(false); setAPIKeySheetFormIds((current) => event.target.checked ? [...current, form.id] : current.filter((id) => id !== form.id)); }} type="checkbox" /><span>{form.name}</span>{checked ? <Check aria-hidden="true" /> : null}</label>; })}
                       </div>
                     </Popover.Content></Popover.Portal>
                   </Popover.Root>
@@ -1019,10 +1055,10 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                         <div className="api-key-access-editor-heading"><div><strong>Dataset access</strong><p>Add or remove datasets for this key at any time.</p></div><span>{editingAPIKeyAllSheetForms ? 'All datasets' : `${editingAPIKeySheetFormIds.length} selected`}</span></div>
                         <div className="api-key-access-tools"><div className="api-key-dataset-search"><Search aria-hidden="true" /><input aria-label="Search available datasets" onChange={(event) => setEditingAPIKeyQuery(event.target.value)} placeholder="Find a dataset" value={editingAPIKeyQuery} /></div><select aria-label="Access level" onChange={(event) => setEditingAPIKeyCanWrite(event.target.value === 'write')} value={editingAPIKeyCanWrite ? 'write' : 'read'}><option value="read">Read only</option><option value="write">Read and write</option></select></div>
                         <div className="api-key-access-grid">
-                          <label className="api-key-all-datasets"><input checked={editingAPIKeyAllSheetForms} onChange={(event) => { setEditingAPIKeyAllSheetForms(event.target.checked); if (event.target.checked) setEditingAPIKeySheetFormIds(sheetForms.map((form) => form.id)); }} type="checkbox" /><span><strong>All datasets</strong><small>Includes datasets created later</small></span>{editingAPIKeyAllSheetForms ? <Check aria-hidden="true" /> : null}</label>
-                          {sheetForms.filter((form) => form.name.toLowerCase().includes(editingAPIKeyQuery.trim().toLowerCase())).map((form) => { const checked = editingAPIKeySheetFormIds.includes(form.id); return <label key={form.id}><input checked={checked} onChange={(event) => { setEditingAPIKeyAllSheetForms(false); setEditingAPIKeySheetFormIds((current) => event.target.checked ? [...current, form.id] : current.filter((id) => id !== form.id)); }} type="checkbox" /><span>{form.name}</span>{checked ? <Check aria-hidden="true" /> : null}</label>; })}
+                          <label className="api-key-all-datasets"><input checked={editingAPIKeyAllSheetForms} onChange={(event) => { setEditingAPIKeyAllSheetForms(event.target.checked); if (event.target.checked) setEditingAPIKeySheetFormIds(activeSheetForms.map((form) => form.id)); }} type="checkbox" /><span><strong>All datasets</strong><small>Includes datasets created later</small></span>{editingAPIKeyAllSheetForms ? <Check aria-hidden="true" /> : null}</label>
+                          {activeSheetForms.filter((form) => form.name.toLowerCase().includes(editingAPIKeyQuery.trim().toLowerCase())).map((form) => { const checked = editingAPIKeySheetFormIds.includes(form.id); return <label key={form.id}><input checked={checked} onChange={(event) => { setEditingAPIKeyAllSheetForms(false); setEditingAPIKeySheetFormIds((current) => event.target.checked ? [...current, form.id] : current.filter((id) => id !== form.id)); }} type="checkbox" /><span>{form.name}</span>{checked ? <Check aria-hidden="true" /> : null}</label>; })}
                         </div>
-                        <div className="api-key-access-actions"><Button onClick={() => { setEditingAPIKeyAllSheetForms(true); setEditingAPIKeySheetFormIds(sheetForms.map((form) => form.id)); }} type="button" variant="ghost" size="sm">Select all</Button><Button onClick={() => setEditingAPIKeyID(null)} type="button" variant="ghost" size="sm">Cancel</Button><Button disabled={(!editingAPIKeyAllSheetForms && editingAPIKeySheetFormIds.length === 0) || editingAPIKeySaving} onClick={() => void saveAPIKeyAccess()} type="button" size="sm">{editingAPIKeySaving ? 'Saving' : 'Save access'}</Button></div>
+                        <div className="api-key-access-actions"><Button onClick={() => { setEditingAPIKeyAllSheetForms(true); setEditingAPIKeySheetFormIds(activeSheetForms.map((form) => form.id)); }} type="button" variant="ghost" size="sm">Select all</Button><Button onClick={() => setEditingAPIKeyID(null)} type="button" variant="ghost" size="sm">Cancel</Button><Button disabled={(!editingAPIKeyAllSheetForms && editingAPIKeySheetFormIds.length === 0) || editingAPIKeySaving} onClick={() => void saveAPIKeyAccess()} type="button" size="sm">{editingAPIKeySaving ? 'Saving' : 'Save access'}</Button></div>
                       </div>
                     ) : null}
                   </div>

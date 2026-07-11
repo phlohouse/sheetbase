@@ -585,6 +585,10 @@ func nativeProcessStatus(pidFile string) processStatus {
 	if err != nil || process.Signal(syscall.Signal(0)) != nil {
 		return processStatus{}
 	}
+	state, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "stat=").Output()
+	if err != nil || strings.HasPrefix(strings.TrimSpace(string(state)), "Z") {
+		return processStatus{}
+	}
 	command, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
 	if err != nil || !strings.Contains(string(command), lines[1]) {
 		return processStatus{}
@@ -659,6 +663,10 @@ func validateNativeRuntime(native nativeRuntime) error {
 }
 
 func stopNativeProcess(pidFile string) error {
+	return stopNativeProcessWithin(pidFile, 10*time.Second, 2*time.Second)
+}
+
+func stopNativeProcessWithin(pidFile string, termGrace, killGrace time.Duration) error {
 	status := nativeProcessStatus(pidFile)
 	if !status.Running {
 		_ = os.Remove(pidFile)
@@ -671,12 +679,24 @@ func stopNativeProcess(pidFile string) error {
 	if err := process.Signal(syscall.SIGTERM); err != nil {
 		return err
 	}
-	for range 50 {
+	deadline := time.Now().Add(termGrace)
+	for time.Now().Before(deadline) {
 		if !nativeProcessStatus(pidFile).Running {
 			_ = os.Remove(pidFile)
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	if err := process.Signal(syscall.SIGKILL); err != nil && nativeProcessStatus(pidFile).Running {
+		return fmt.Errorf("force stop process %d: %w", status.PID, err)
+	}
+	deadline = time.Now().Add(killGrace)
+	for time.Now().Before(deadline) {
+		if !nativeProcessStatus(pidFile).Running {
+			_ = os.Remove(pidFile)
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("process %d did not stop", status.PID)
 }

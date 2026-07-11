@@ -3,6 +3,7 @@ export interface SheetForm {
   slug: string;
   name: string;
   generated_table_name: string;
+  archived_at: string | null;
 }
 
 export interface SheetField {
@@ -114,6 +115,22 @@ export async function setSheetFormSlug(
       Prefer: 'return=representation',
     },
     body: JSON.stringify({ sheet_form_id: sheetFormId, slug }),
+  });
+}
+
+export async function archiveSheetForm(sheetFormId: string, archived: boolean, fetcher: typeof fetch = fetch): Promise<SheetForm> {
+  return request<SheetForm>(`${postgrestUrl}/rpc/archive_sheet_form`, fetcher, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    body: JSON.stringify({ sheet_form_id: sheetFormId, archived }),
+  });
+}
+
+export async function deleteSheetForm(sheetFormId: string, fetcher: typeof fetch = fetch): Promise<void> {
+  await request<unknown>(`${postgrestUrl}/rpc/delete_sheet_form`, fetcher, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sheet_form_id: sheetFormId }),
   });
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
@@ -51,10 +52,7 @@ func run(args []string) error {
 	case "stop":
 		return stopApp(args[1:])
 	case "restart":
-		if err := stopApp(args[1:]); err != nil {
-			return err
-		}
-		return startApp(args[1:])
+		return restartApp(args[1:])
 	case "migrate":
 		return migrateApp(args[1:])
 	case "upgrade":
@@ -316,6 +314,21 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 			r.Header.Del("X-API-Key")
 			r.Header.Del("Cookie")
 			r.Header.Set("Authorization", "Bearer "+jwt)
+			if auth.sheetForms != nil {
+				slug := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/"), "/")
+				if slug != "" && !strings.Contains(slug, "/") && !isPublicMetadataResource(slug) {
+					table, resolveErr := auth.sheetForms.tableNameBySlug(r.Context(), slug)
+					if resolveErr != nil {
+						if errors.Is(resolveErr, sql.ErrNoRows) {
+							http.NotFound(w, r)
+							return
+						}
+						http.Error(w, "API route is unavailable", http.StatusServiceUnavailable)
+						return
+					}
+					r.URL.Path = "/api/" + table
+				}
+			}
 			apiProxy.ServeHTTP(w, r)
 			return
 		}
@@ -328,6 +341,15 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	}), nil
+}
+
+func isPublicMetadataResource(resource string) bool {
+	switch resource {
+	case "sheet_forms", "sheet_fields", "sheet_views":
+		return true
+	default:
+		return false
+	}
 }
 
 type responseLogWriter struct {

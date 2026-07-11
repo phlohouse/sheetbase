@@ -416,8 +416,8 @@ describe('App', () => {
     expect(await screen.findByLabelText('API slug')).toHaveProperty('value', 'companies');
     expect(screen.getByText('http://localhost:3000/api/')).toBeTruthy();
     expect(apiButton.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByText('/api/sheet_companies?select=*&limit=20')).toBeTruthy();
-    expect(screen.getByText('/api/sheet_companies')).toBeTruthy();
+    expect(screen.getByText('/api/companies?select=*&limit=20')).toBeTruthy();
+    expect(screen.getByText('/api/companies')).toBeTruthy();
     expect(screen.getByText('/api/sheet_fields?sheet_form_id=eq.form-1&order=position.asc')).toBeTruthy();
     const docs = screen.getByLabelText('API documentation');
     expect(within(docs).getByText('API access')).toBeTruthy();
@@ -426,10 +426,10 @@ describe('App', () => {
     expect(within(docs).getByText('company')).toBeTruthy();
     expect(within(docs).getByText('integer')).toBeTruthy();
     fireEvent.click(within(docs).getByRole('button', { name: 'Copy API endpoint' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://localhost:3000/api/sheet_companies'));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://localhost:3000/api/companies'));
     await waitFor(() => expect(within(docs).getByText('Copied')).toBeTruthy());
     fireEvent.click(within(docs).getByRole('button', { name: 'Copy read rows URL' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://localhost:3000/api/sheet_companies?select=*&limit=20'));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://localhost:3000/api/companies?select=*&limit=20'));
     fireEvent.click(apiButton);
     expect(screen.queryByLabelText('API documentation')).toBeNull();
     expect(apiButton.getAttribute('aria-expanded')).toBe('false');

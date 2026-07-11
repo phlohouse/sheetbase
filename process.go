@@ -184,6 +184,24 @@ func downApp(args []string) error {
 	return stopApp(args)
 }
 
+func restartApp(args []string) error {
+	cfg, err := parseAppConfig("restart", args)
+	if err != nil {
+		return err
+	}
+	paths := newAppPaths(cfg.home)
+	if nativeProcessStatus(paths.appPID).Running {
+		if err := downApp(args); err != nil {
+			return err
+		}
+		return upApp(args)
+	}
+	if err := stopApp(args); err != nil {
+		return err
+	}
+	return startApp(args)
+}
+
 func backgroundServeArgs(paths appPaths, cfg appConfig, parentArgs []string) []string {
 	args := []string{"serve", "--home", paths.home}
 	if hasFlag(parentArgs, "db-url") {
@@ -290,11 +308,12 @@ func stopApp(args []string) (err error) {
 	}
 	defer beginCommandLog("stop", paths)(&err)
 	if cfg.runtimeMode == "native" {
-		if err := stopNativeProcess(paths.postgrestPID); err != nil {
-			return err
-		}
-		if err := stopNativeProcess(paths.postgresPID); err != nil {
-			return err
+		stopErr := errors.Join(
+			stopNativeProcess(paths.postgrestPID),
+			stopNativeProcess(paths.postgresPID),
+		)
+		if stopErr != nil {
+			return stopErr
 		}
 		fmt.Printf("stopped Sheetbase services from %s\n", paths.home)
 		return nil

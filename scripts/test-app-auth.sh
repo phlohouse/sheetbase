@@ -46,6 +46,7 @@ docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/002_api_keys.sql >/dev/null
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/003_open_api_without_keys.sql >/dev/null
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/004_api_key_all_datasets.sql >/dev/null
+docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/005_sheet_form_lifecycle.sql >/dev/null
 
 docker run \
   --detach \
@@ -105,12 +106,13 @@ form_json="$(curl --fail --silent \
   "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
 
 generated_table="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
+slug="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
 form_id="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 second_form_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' --header 'Prefer: return=representation' --data '{"name":"Auth Contacts","headers":["Name"]}' "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
 second_form_id="$(printf '%s' "$second_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-second_generated_table="$(printf '%s' "$second_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
+second_slug="$(printf '%s' "$second_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
 
-cookie_api_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --cookie "$cookie_file" "http://127.0.0.1:18080/api/$generated_table?limit=1")"
+cookie_api_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --cookie "$cookie_file" "http://127.0.0.1:18080/api/$slug?limit=1")"
 if [[ "$cookie_api_status" != "200" ]]; then
   echo "Expected public API to be open before the first key, got $cookie_api_status" >&2
   exit 1
@@ -126,17 +128,17 @@ api_key_id="$(printf '%s' "$api_key_json" | python3 -c 'import json,sys; print(j
 permission_count="$(printf '%s' "$api_key_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["permissions"]))')"
 if [[ "$permission_count" != "2" ]]; then echo "Expected API key to cover two datasets, got $permission_count" >&2; exit 1; fi
 
-curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$generated_table?limit=1" >/dev/null
-curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$second_generated_table?limit=1" >/dev/null
+curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?limit=1" >/dev/null
+curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$second_slug?limit=1" >/dev/null
 
 future_form_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' --header 'Prefer: return=representation' --data '{"name":"Future dataset","headers":["Value"]}' "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
 future_form_id="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-future_generated_table="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
-curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_generated_table?limit=1" >/dev/null
+future_slug="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
+curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1" >/dev/null
 curl --fail --silent --request PATCH --cookie "$cookie_file" --header 'Content-Type: application/json' \
   --data "{\"sheet_form_ids\":[\"$form_id\",\"$second_form_id\",\"$future_form_id\"],\"can_write\":true}" \
   "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
-curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_generated_table?limit=1" >/dev/null
+curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1" >/dev/null
 
 forms="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_forms?select=name")"
 if [[ "$forms" != *"Auth Companies"* ]]; then
@@ -166,14 +168,14 @@ if [[ "$filtered_company" != "Acme Labs" ]]; then
   exit 1
 fi
 
-public_filtered="$(curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$generated_table?domain=eq.acme.test&select=company")"
+public_filtered="$(curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?domain=eq.acme.test&select=company")"
 if [[ "$public_filtered" != *"Acme Labs"* ]]; then echo "API key could not read rows: $public_filtered" >&2; exit 1; fi
 
 curl --fail --silent \
   --header "X-API-Key: $api_key" \
   --header 'Content-Type: application/json' \
   --data '[{"company":"API Writer","domain":"api.test"}]' \
-  "http://127.0.0.1:18080/api/$generated_table" >/dev/null
+  "http://127.0.0.1:18080/api/$slug" >/dev/null
 
 read_key_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' \
   --data "{\"name\":\"Read only\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
@@ -181,7 +183,7 @@ read_key_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-
 read_key="$(printf '%s' "$read_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
 read_key_id="$(printf '%s' "$read_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 read_write_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --header "X-API-Key: $read_key" \
-  --header 'Content-Type: application/json' --data '[{"company":"Denied"}]' "http://127.0.0.1:18080/api/$generated_table")"
+  --header 'Content-Type: application/json' --data '[{"company":"Denied"}]' "http://127.0.0.1:18080/api/$slug")"
 if [[ "$read_write_status" =~ ^2 ]]; then echo "Read-only API key wrote a row" >&2; exit 1; fi
 curl --fail --silent --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$read_key_id" >/dev/null
 
@@ -271,7 +273,7 @@ guard_key_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content
   "http://127.0.0.1:18080/admin/api-keys")"
 guard_key_id="$(printf '%s' "$guard_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 curl --fail --silent --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
-revoked_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$generated_table?limit=1")"
+revoked_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?limit=1")"
 if [[ "$revoked_status" != "401" ]]; then echo "Revoked API key returned $revoked_status" >&2; exit 1; fi
 curl --fail --silent --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$guard_key_id" >/dev/null
 

@@ -477,6 +477,40 @@ input:focus-visible {
   flex: 1;
 }
 
+.form-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 2px 3px 4px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.form-search svg { width: 13px; }
+.form-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 12px; }
+.form-nav-row { position: relative; display: flex; align-items: center; }
+.form-nav-row > a { min-width: 0; padding-right: 30px; }
+.form-nav-menu { position: absolute; right: 4px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); opacity: 0; cursor: pointer; }
+.form-nav-row:hover .form-nav-menu, .form-nav-menu:focus-visible, .form-nav-menu.visible { opacity: 1; }
+.form-nav-menu:hover { background: var(--surface-muted); color: var(--ink); }
+.form-nav-menu svg { width: 14px; }
+.form-menu { z-index: 40; display: grid; min-width: 156px; padding: 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); box-shadow: 0 8px 24px rgb(15 23 42 / 12%); }
+.form-menu button { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.form-menu button:hover { background: var(--surface-muted); }
+.form-menu button svg { width: 14px; color: var(--text-muted); }
+.form-menu .confirm-delete { background: color-mix(in oklab, var(--danger) 10%, transparent); color: var(--danger); }
+.archived-toggle { display: flex; align-items: center; gap: 6px; height: 28px; margin-top: 5px; padding: 0 8px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.archived-toggle svg { width: 12px; transition: rotate 120ms ease; }
+.archived-toggle svg.collapsed { rotate: -90deg; }
+.archived-toggle span { margin-left: auto; }
+.form-nav-row.archived { min-height: 30px; padding: 0 8px; color: var(--text-muted); font-size: 12px; }
+.archived-name { display: flex; min-width: 0; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.archived-name svg { flex: 0 0 auto; width: 14px; }
+
 .form-list {
   min-height: 0;
   overflow-y: auto;
@@ -1814,7 +1848,11 @@ input[type='checkbox'] {
   .new-form-action span,
   .form-list a span,
   .form-list a em,
-  .section-title {
+  .section-title,
+  .form-search,
+  .archived-toggle,
+  .form-nav-row.archived,
+  .form-nav-menu {
     display: none;
   }
 

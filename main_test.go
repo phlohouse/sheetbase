@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,15 @@ import (
 	"testing"
 	"time"
 )
+
+type fakeSheetFormStore struct {
+	table string
+	err   error
+}
+
+func (s fakeSheetFormStore) tableNameBySlug(context.Context, string) (string, error) {
+	return s.table, s.err
+}
 
 func TestUIHandlerServesAppShellAndHealth(t *testing.T) {
 	handler, err := newUIHandler("http://127.0.0.1:3000", nil)
@@ -156,6 +166,39 @@ func TestPublicProxyIsOpenWhenNoAPIKeysExist(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("open API status = %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestPublicProxyResolvesCanonicalSlug(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.String() != "/sheet_9d4b32a3?select=*" {
+			t.Fatalf("proxied URL = %q", r.URL.String())
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+	auth := &authService{apiKeys: &fakeAPIKeyStore{}, sheetForms: fakeSheetFormStore{table: "sheet_9d4b32a3"}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	handler, err := newUIHandler(backend.URL, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/companies?select=*", nil))
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d", res.Code)
+	}
+}
+
+func TestPublicProxyReturnsNotFoundForUnknownSlug(t *testing.T) {
+	auth := &authService{apiKeys: &fakeAPIKeyStore{}, sheetForms: fakeSheetFormStore{err: sql.ErrNoRows}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	handler, err := newUIHandler("http://127.0.0.1:3000", auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/missing", nil))
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", res.Code)
 	}
 }
 

@@ -71,7 +71,7 @@ The UI is a React 19 + Vite + Tailwind 4 app built into `ui/dist/` and embedded 
 
 ### API Key (programmatic)
 
-1. Admin creates an API key via `POST /admin/api-keys` (scoped to one Sheet Form, read or read+write)
+1. Admin creates an API key via `POST /admin/api-keys` (selected datasets or all current and future datasets, read or read+write)
 2. Go server returns the full `sbk_...` token once (stored as SHA-256 hash)
 3. Client sends requests to `/api/*` with `X-API-Key: sbk_...` or `Authorization: Bearer sbk_...`
 4. Go server hashes the token, looks up the key ID, issues a 15-minute JWT with `kind=api_key`, strips the original key and cookie headers, and proxies to PostgREST
@@ -91,7 +91,7 @@ Requests for files that exist in `ui/dist/` are served directly. All other paths
 
 | Table | Purpose |
 |-------|---------|
-| `sheet_forms` | Sheet Form metadata: id, slug, name, generated_table_name, timestamps |
+| `sheet_forms` | Sheet Form metadata: id, slug, name, generated_table_name, archived_at, timestamps |
 | `sheet_fields` | Field definitions: id, sheet_form_id, name, column_name, type, position, hidden, timestamps |
 | `sheet_views` | UI view state: frozen rows/columns, column widths, sort/filter state |
 | `users` | Admin users: id, email, password_hash, timestamps |
@@ -102,7 +102,7 @@ Requests for files that exist in `ui/dist/` are served directly. All other paths
 
 ### Generated Tables
 
-Each Sheet Form creates one PostgreSQL table named after the form's slug (e.g., `sheet_companies`). Every Generated Table has:
+Each Sheet Form creates one PostgreSQL table behind its editable public slug (e.g., `companies`). Every Generated Table has:
 
 - `id` UUID primary key
 - `created_at` timestamptz
@@ -119,6 +119,8 @@ Schema-changing operations are implemented as PostgreSQL functions exposed throu
 |----------|---------|
 | `create_sheet_form(name, headers[])` | Create a Sheet Form + Generated Table + fields + permissions in one transaction |
 | `set_sheet_form_slug(id, slug)` | Rename the API slug and underlying table |
+| `archive_sheet_form(id, archived)` | Archive or restore a Sheet Form without deleting data |
+| `delete_sheet_form(id)` | Permanently drop a Sheet Form's table and metadata |
 | `rename_sheet_form(id, name)` | Update the display name |
 | `add_sheet_field(form_id, name)` | Add a `text` column to an existing form |
 | `rename_sheet_field(form_id, field_id, name)` | Update a field's display name |

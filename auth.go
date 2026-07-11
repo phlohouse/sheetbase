@@ -21,6 +21,7 @@ import (
 type authService struct {
 	store           userStore
 	apiKeys         apiKeyStore
+	sheetForms      sheetFormStore
 	jwtSecret       string
 	sessions        map[string]sessionRecord
 	revokedSessions map[string]time.Time
@@ -35,6 +36,18 @@ type sessionRecord struct {
 type userStore interface {
 	createFirstUser(ctx context.Context, email, passwordHash string) (string, error)
 	userByEmail(ctx context.Context, email string) (userRecord, error)
+}
+
+type sheetFormStore interface {
+	tableNameBySlug(ctx context.Context, slug string) (string, error)
+}
+
+type sqlSheetFormStore struct{ db *sql.DB }
+
+func (s sqlSheetFormStore) tableNameBySlug(ctx context.Context, slug string) (string, error) {
+	var table string
+	err := s.db.QueryRowContext(ctx, `select generated_table_name from sheet_forms where slug = $1 and archived_at is null`, slug).Scan(&table)
+	return table, err
 }
 
 type userRecord struct {
@@ -52,7 +65,7 @@ func newAuthService(dbURL, jwtSecret string) (*authService, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("connect auth database: %w", err)
 	}
-	return &authService{store: sqlUserStore{db: db}, apiKeys: sqlAPIKeyStore{db: db}, jwtSecret: jwtSecret, sessions: map[string]sessionRecord{}, revokedSessions: map[string]time.Time{}}, nil
+	return &authService{store: sqlUserStore{db: db}, apiKeys: sqlAPIKeyStore{db: db}, sheetForms: sqlSheetFormStore{db: db}, jwtSecret: jwtSecret, sessions: map[string]sessionRecord{}, revokedSessions: map[string]time.Time{}}, nil
 }
 
 func (a *authService) handleSetup(w http.ResponseWriter, r *http.Request) {

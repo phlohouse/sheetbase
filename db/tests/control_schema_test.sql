@@ -6,6 +6,7 @@ begin;
 \i /work/db/migrations/002_api_keys.sql
 \i /work/db/migrations/003_open_api_without_keys.sql
 \i /work/db/migrations/004_api_key_all_datasets.sql
+\i /work/db/migrations/005_sheet_form_lifecycle.sql
 
 insert into users (id, email, password_hash)
 values
@@ -252,6 +253,28 @@ begin
   if (select type from sheet_fields where id = bad_field) != 'text' then
     raise exception 'failed tightening changed metadata type';
   end if;
+end;
+$$;
+
+do $$
+declare
+  form_id uuid := (select id from created_form);
+  archived sheet_forms;
+begin
+  select * into archived from archive_sheet_form(form_id, true);
+  if archived.archived_at is null then raise exception 'archive did not set archived_at'; end if;
+  select * into archived from archive_sheet_form(form_id, false);
+  if archived.archived_at is not null then raise exception 'restore did not clear archived_at'; end if;
+end;
+$$;
+
+do $$
+declare disposable sheet_forms;
+begin
+  select * into disposable from create_sheet_form('Disposable', array['Value']);
+  perform delete_sheet_form(disposable.id);
+  if exists (select 1 from sheet_forms where id = disposable.id) then raise exception 'deleted form metadata remains'; end if;
+  if to_regclass('public.' || quote_ident(disposable.generated_table_name)) is not null then raise exception 'deleted form table remains'; end if;
 end;
 $$;
 

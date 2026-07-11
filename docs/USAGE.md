@@ -32,18 +32,20 @@ Sheetbase creates one PostgreSQL table for the Sheet Form and stores rows there.
 The UI shows the generated endpoint for the active Sheet Form, for example:
 
 ```txt
-/api/sheet_companies
+/api/companies
 ```
 
 Create an API key from the saved Sheet Form's API panel, then send it with each request:
 
 ```sh
 curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/sheet_forms?select=name,generated_table_name'
-curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/sheet_companies?select=*&limit=20'
-curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/sheet_companies?company=eq.Acme%20Labs'
+curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/companies?select=*&limit=20'
+curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/companies?company=eq.Acme%20Labs'
 ```
 
-API keys are independent from Sheetbase sign-in, stored as hashes, scoped to one Sheet Form, and can be read-only or read/write. Revoking a key takes effect on its next request without signing anyone out of Sheetbase. The `/api` paths are proxied to PostgREST, so standard PostgREST filters, ordering, pagination, and `select` parameters apply.
+API keys are independent from Sheetbase sign-in, stored as hashes, and can cover selected datasets or all current and future datasets. Revoking a key takes effect on its next request without signing anyone out of Sheetbase. The `/api` paths are proxied to PostgREST, so standard PostgREST filters, ordering, pagination, and `select` parameters apply.
+
+Use a Sheet Form's sidebar menu to archive it, restore it from the Archived section, or permanently delete its table and metadata. A search field appears automatically in larger workspaces.
 
 ## See Also
 
