@@ -731,9 +731,9 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         : saveMessage === 'Unsaved changes' ? 'Unsaved changes' : 'Local draft';
   const apiEndpoint = sheetForm ? apiURL(sheetForm.generated_table_name) : '';
   const apiRequests = sheetForm ? [
-    { key: 'read', label: 'Read rows', method: 'GET', value: `GET /api/${sheetForm.generated_table_name}?select=*&limit=20` },
-    { key: 'create', label: 'Create rows', method: 'POST', value: `POST /api/${sheetForm.generated_table_name}` },
-    { key: 'metadata', label: 'Field metadata', method: 'GET', value: `GET /api/sheet_fields?sheet_form_id=eq.${sheetForm.id}&order=position.asc` },
+    { key: 'read', label: 'Read rows', method: 'GET', path: `/api/${sheetForm.generated_table_name}?select=*&limit=20` },
+    { key: 'create', label: 'Create rows', method: 'POST', path: `/api/${sheetForm.generated_table_name}` },
+    { key: 'metadata', label: 'Field metadata', method: 'GET', path: `/api/sheet_fields?sheet_form_id=eq.${sheetForm.id}&order=position.asc` },
   ] : [];
   const selectedGridCell = () => hotRef.current?.hotInstance?.getSelectedLast() ?? null;
   const gridContextMenu = {
@@ -959,8 +959,8 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                       <div className="api-request" key={request.key}>
                         <span className="api-request-label">{request.label}</span>
                         <span className={`api-method ${request.method.toLowerCase()}`}>{request.method}</span>
-                        <code>{request.value}</code>
-                        <Button aria-label={`Copy ${request.label.toLowerCase()} request`} onClick={() => void copyAPIText(request.key, request.value)} type="button" variant="ghost" size="icon-xs">
+                        <code>{request.path}</code>
+                        <Button aria-label={`Copy ${request.label.toLowerCase()} request`} onClick={() => void copyAPIText(request.key, `${window.location.origin}${request.path}`)} type="button" variant="ghost" size="icon-xs">
                           {copiedSnippet === request.key ? <Check /> : <Copy />}
                         </Button>
                       </div>
@@ -1024,10 +1024,11 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             contextMenu={gridContextMenu}
             manualColumnMove
             manualColumnResize
+            minRows={20}
             minSpareRows={1}
             stretchH="all"
             width="100%"
-            height="calc(100% - 28px)"
+            height="calc(100% - 32px)"
             licenseKey="non-commercial-and-evaluation"
             afterChange={handleGridChange}
             afterGetColHeader={renderEditableColumnHeader}
