@@ -5,8 +5,31 @@ import { App } from './App';
 describe('App', () => {
   afterEach(() => {
     cleanup();
+    document.documentElement.classList.remove('dark');
+    document.documentElement.style.colorScheme = '';
+    window.localStorage?.clear?.();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('persists an explicit dark mode preference', () => {
+    const themeStorage = new Map<string, string>();
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        clear: () => themeStorage.clear(),
+        getItem: (key: string) => themeStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => themeStorage.set(key, value),
+      },
+    });
+    render(<App onSignOut={() => undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to dark mode' }));
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+    expect(window.localStorage.getItem('sheetbase-theme')).toBe('dark');
+    expect(screen.getByRole('button', { name: 'Switch to light mode' })).toBeTruthy();
   });
 
   it('supports the local Sheet Form editing lifecycle', () => {
@@ -26,15 +49,37 @@ describe('App', () => {
 
     fireEvent.click(screen.getByLabelText('Add column'));
     expect(screen.getByLabelText('Header 7')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Export' }).getAttribute('href')).toBe('/admin/export');
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveProperty('disabled', true);
   });
 
   it('renders the Handsontable grid for spreadsheet keyboard navigation', () => {
     const { container } = render(<App />);
 
     expect(container.querySelector('.handsontable')).toBeTruthy();
+    expect(container.querySelector<HTMLElement>('.table-frame')?.style.colorScheme).toBe('light');
     expect(screen.getAllByDisplayValue('Company').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: 'Company' }).length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('gridcell', { name: 'Company' })).toHaveLength(0);
     expect(screen.getByDisplayValue('Vercel')).toBeTruthy();
+  });
+
+  it('renames column headers in place on double click', async () => {
+    render(<App />);
+
+    fireEvent.doubleClick(screen.getAllByRole('columnheader', { name: 'Company' })[0]);
+    const input = await screen.findByRole('textbox', { name: 'Edit Company column header' });
+    fireEvent.change(input, { target: { value: 'Account' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(screen.getAllByRole('columnheader', { name: 'Account' }).length).toBeGreaterThan(0));
+
+    fireEvent.doubleClick(screen.getAllByRole('columnheader', { name: 'Account' })[0]);
+    const cancelInput = await screen.findByRole('textbox', { name: 'Edit Account column header' });
+    fireEvent.change(cancelInput, { target: { value: 'Discard me' } });
+    fireEvent.keyDown(cancelInput, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryAllByRole('columnheader', { name: 'Discard me' })).toHaveLength(0));
+    expect(screen.getAllByRole('columnheader', { name: 'Account' }).length).toBeGreaterThan(0);
   });
 
   it('keeps the sidebar to working actions', async () => {
@@ -59,6 +104,33 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Import Stencil config' }));
     expect(clickSpy).toHaveBeenCalled();
+  });
+
+  it('keeps local-draft API and export actions safe and explanatory', () => {
+    render(<App />);
+
+    const apiButton = screen.getByRole('button', { name: 'API' });
+    expect(apiButton).toHaveProperty('disabled', false);
+    fireEvent.click(apiButton);
+    expect(screen.getByLabelText('API documentation')).toBeTruthy();
+    expect(screen.getByText('Save this Sheet Form to create its API endpoint.')).toBeTruthy();
+
+    const exportButton = screen.getByRole('button', { name: 'Export' });
+    expect(exportButton).toHaveProperty('disabled', true);
+    expect(exportButton.getAttribute('title')).toBe('Save this Sheet Form before exporting a backup');
+  });
+
+  it('reports an unavailable database and prevents server-backed actions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('connection refused');
+    }));
+
+    render(<App onSignOut={() => undefined} />);
+
+    expect(await screen.findByText('Database unavailable')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'API' })).toHaveProperty('disabled', false);
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveProperty('disabled', true);
   });
 
   it('does not let the initial load overwrite a new draft', async () => {
@@ -269,6 +341,11 @@ describe('App', () => {
   });
 
   it('shows generated API documentation for the loaded Sheet Form', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes('/sheet_forms')) {
@@ -293,15 +370,27 @@ describe('App', () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'API' }));
-    expect(await screen.findByText('http://localhost:3000/api/sheet_companies')).toBeTruthy();
+    const apiButton = await screen.findByRole('button', { name: 'API' });
+    await waitFor(() => expect(apiButton).toHaveProperty('disabled', false));
+    fireEvent.click(apiButton);
+    expect(await screen.findByLabelText('API slug')).toHaveProperty('value', 'companies');
+    expect(screen.getByText('http://localhost:3000/api/')).toBeTruthy();
+    expect(apiButton.getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByText('GET /api/sheet_companies?select=*&limit=20')).toBeTruthy();
     expect(screen.getByText('POST /api/sheet_companies')).toBeTruthy();
     expect(screen.getByText('GET /api/sheet_fields?sheet_form_id=eq.form-1&order=position.asc')).toBeTruthy();
     const docs = screen.getByLabelText('API documentation');
+    expect(within(docs).getByText('API access')).toBeTruthy();
+    expect(within(docs).getByText('2 fields')).toBeTruthy();
     expect(within(docs).getByText('Company')).toBeTruthy();
     expect(within(docs).getByText('company')).toBeTruthy();
     expect(within(docs).getByText('integer')).toBeTruthy();
+    fireEvent.click(within(docs).getByRole('button', { name: 'Copy API endpoint' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://localhost:3000/api/sheet_companies'));
+    expect(within(docs).getByText('Copied')).toBeTruthy();
+    fireEvent.click(apiButton);
+    expect(screen.queryByLabelText('API documentation')).toBeNull();
+    expect(apiButton.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('loads and saves column widths through the default Sheet View', async () => {

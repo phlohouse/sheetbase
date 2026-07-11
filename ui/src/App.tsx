@@ -1,9 +1,17 @@
 import {
+  Check,
   ChevronDown,
+  CircleAlert,
+  Cloud,
+  Copy,
+  Database,
   Download,
   Import,
+  LoaderCircle,
+  Moon,
   Plus,
   Save,
+  Sun,
   Table2,
   TerminalSquare,
 } from 'lucide-react';
@@ -14,7 +22,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import 'handsontable/styles/handsontable.min.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetForm, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
+import { addSheetField, createSheetForm, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
 
 registerAllModules();
@@ -95,7 +103,28 @@ function blankDraft() {
   return { columns, rows: [emptyRow('draft-1', columns)] };
 }
 
+function readStoredTheme() {
+  try {
+    return window.localStorage?.getItem('sheetbase-theme');
+  } catch {
+    return null;
+  }
+}
+
+function storeTheme(theme: 'light' | 'dark') {
+  try {
+    window.localStorage?.setItem('sheetbase-theme', theme);
+  } catch {
+    // Theme persistence is optional in restricted browser contexts.
+  }
+}
+
 export function App({ onSignOut }: { onSignOut?: () => void }) {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const storedTheme = readStoredTheme();
+    if (storedTheme === 'light' || storedTheme === 'dark') return storedTheme;
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
   const [columns, setColumns] = useState(initialColumns);
   const [rows, setRows] = useState(initialRows);
   const [sheetForm, setSheetForm] = useState<SheetForm | null>(null);
@@ -103,11 +132,23 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [formName, setFormName] = useState('Companies');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('Local draft');
-  const [apiVisible, setApiVisible] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
+  const [apiVisible, setApiVisible] = useState(() => window.location.hash === '#api');
+  const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
+  const [slugDraft, setSlugDraft] = useState('');
+  const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
+  const [headerEditor, setHeaderEditor] = useState<{ columnIndex: number; left: number; top: number; width: number } | null>(null);
   const hotRef = useRef<HotTableRef>(null);
+  const headerInputRef = useRef<HTMLInputElement>(null);
   const apiSummaryRef = useRef<HTMLElement>(null);
   const stencilInputRef = useRef<HTMLInputElement>(null);
   const draftStartedRef = useRef(false);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
+    storeTheme(theme);
+  }, [theme]);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +156,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     async function loadLatestForm() {
       try {
         const forms = await listSheetForms();
+        if (!cancelled) setBackendStatus('connected');
         if (draftStartedRef.current) return;
         if (!cancelled) setSheetForms(forms);
         const [form] = forms;
@@ -130,6 +172,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         if (!form || cancelled) return;
         await loadForm(form, () => cancelled || draftStartedRef.current);
       } catch {
+        if (!cancelled) setBackendStatus('offline');
         // Keep the local draft usable when the API is not up yet.
       }
     }
@@ -139,6 +182,18 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (sheetForm && window.location.hash === '#api') setApiVisible(true);
+  }, [sheetForm]);
+
+  useEffect(() => {
+    setSlugDraft(sheetForm?.slug ?? '');
+  }, [sheetForm?.id, sheetForm?.slug]);
+
+  useEffect(() => {
+    if (headerEditor) headerInputRef.current?.focus();
+  }, [headerEditor]);
 
   const loadForm = async (form: SheetForm, isCancelled: () => boolean = () => false) => {
     draftStartedRef.current = false;
@@ -160,6 +215,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setColumns(nextColumns);
       setRows(ensureBlankRow(loadedRows, nextColumns));
       setApiVisible(false);
+      setActiveFieldIndex(null);
       setSaveState('saved');
       setSaveMessage('Loaded from database');
     } catch (error) {
@@ -170,10 +226,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   };
 
   const hotData = useMemo(
-    () => [
-      columns.map((column) => column.label),
-      ...rows.map((currentRow) => columns.map((column) => currentRow.values[column.key] ?? '')),
-    ],
+    () => rows.map((currentRow) => columns.map((column) => currentRow.values[column.key] ?? '')),
     [columns, rows],
   );
 
@@ -189,6 +242,49 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     setColumns((currentColumns) => currentColumns.map((column, index) => (
       index === columnIndex ? { ...column, label } : column
     )));
+  };
+
+  const renderEditableColumnHeader = (columnIndex: number, headerCell: HTMLTableCellElement) => {
+    if (columnIndex < 0) return;
+    const labelElement = headerCell.querySelector<HTMLElement>('.colHeader');
+    const column = columns[columnIndex];
+    if (!labelElement || !column) return;
+
+    labelElement.classList.add('editable-column-header');
+    labelElement.title = 'Double-click to rename';
+    const editableHeaderCell = headerCell as HTMLTableCellElement & { sheetbaseDblClick?: (event: MouseEvent) => void };
+    editableHeaderCell.sheetbaseDblClick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const frame = headerCell.closest<HTMLElement>('.table-frame');
+      if (!frame) return;
+      const headerRect = headerCell.getBoundingClientRect();
+      const frameRect = frame.getBoundingClientRect();
+      const editorPosition = {
+        columnIndex,
+        left: headerRect.left - frameRect.left + frame.scrollLeft,
+        top: headerRect.top - frameRect.top + frame.scrollTop,
+        width: headerRect.width,
+      };
+      requestAnimationFrame(() => {
+        setHeaderEditor(editorPosition);
+      });
+    };
+    if (!headerCell.dataset.inlineEditBound) {
+      headerCell.dataset.inlineEditBound = 'true';
+      headerCell.addEventListener('dblclick', (event) => {
+        editableHeaderCell.sheetbaseDblClick?.(event);
+      }, { capture: true });
+    }
+  };
+
+  const finishHeaderEdit = (commit: boolean) => {
+    if (!headerEditor) return;
+    const nextLabel = headerInputRef.current?.value.trim() ?? '';
+    if (commit && nextLabel) updateHeader(headerEditor.columnIndex, nextLabel);
+    setHeaderEditor(null);
+    requestAnimationFrame(() => hotRef.current?.hotInstance?.render());
   };
 
   const updateCell = (rowIndex: number, columnKey: string, value: string) => {
@@ -213,6 +309,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         values: { ...currentRow.values, [column.key]: '' },
       })));
       requestAnimationFrame(() => hotRef.current?.hotInstance?.selectCell(0, currentColumns.length));
+      setActiveFieldIndex(currentColumns.length);
       return [...currentColumns, column];
     });
   };
@@ -244,6 +341,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     const [column] = nextColumns.splice(columnIndex, 1);
     nextColumns.splice(targetIndex, 0, column);
     setColumns(nextColumns);
+    setActiveFieldIndex((current) => (current === columnIndex ? targetIndex : current));
     if (!sheetForm) return;
 
     try {
@@ -270,6 +368,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     if (!sheetForm || !column.fieldId) {
       setColumns(usableColumns);
       setRows((currentRows) => currentRows.map(removeColumnValue));
+      setActiveFieldIndex(null);
       setSaveState('idle');
       setSaveMessage('Local field removed');
       return;
@@ -281,6 +380,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       await hideSheetField(sheetForm.id, column.fieldId);
       setColumns(usableColumns);
       setRows((currentRows) => currentRows.map(removeColumnValue));
+      setActiveFieldIndex(null);
       setSaveState('saved');
       setSaveMessage('Field hidden');
     } catch (error) {
@@ -376,6 +476,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       setRows([emptyRow('draft-1', nextColumns)]);
       setSheetForm(null);
       setApiVisible(false);
+      setActiveFieldIndex(null);
       setFormName(imported.name || 'Imported Sheet Form');
       setSaveState('idle');
       setSaveMessage(`Imported ${imported.headers.length} headers`);
@@ -397,19 +498,54 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     setColumns(draft.columns);
     setRows(draft.rows);
     setApiVisible(false);
+    setActiveFieldIndex(null);
     setSaveState('idle');
     setSaveMessage('Local draft');
     requestAnimationFrame(() => hotRef.current?.hotInstance?.selectCell(0, 0));
   };
 
   const showAPIEndpoint = () => {
-    if (!sheetForm) {
-      setSaveMessage('Save a Sheet Form to create an API endpoint');
+    if (apiVisible) {
+      setApiVisible(false);
+      window.history.replaceState(null, '', window.location.pathname);
       return;
     }
-    setSaveMessage(`API URL: ${apiURL(sheetForm.generated_table_name)}`);
+    setSaveMessage(sheetForm
+      ? `API URL: ${apiURL(sheetForm.generated_table_name)}`
+      : 'Save this Sheet Form to create its API endpoint');
     setApiVisible(true);
-    apiSummaryRef.current?.scrollIntoView({ block: 'nearest' });
+    window.history.replaceState(null, '', '#api');
+    requestAnimationFrame(() => apiSummaryRef.current?.scrollIntoView({ block: 'nearest' }));
+  };
+
+  const copyAPIText = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedSnippet(key);
+      window.setTimeout(() => {
+        setCopiedSnippet((current) => current === key ? null : current);
+      }, 1600);
+    } catch {
+      setSaveState('error');
+      setSaveMessage('Could not copy to clipboard');
+    }
+  };
+
+  const saveAPISlug = async () => {
+    if (!sheetForm || slugDraft.trim() === '' || slugDraft === sheetForm.slug) return;
+    setSaveState('saving');
+    setSaveMessage('Updating API slug');
+    try {
+      const updatedForm = await setSheetFormSlug(sheetForm.id, slugDraft);
+      setSheetForm(updatedForm);
+      setSheetForms((current) => current.map((form) => form.id === updatedForm.id ? updatedForm : form));
+      setSlugDraft(updatedForm.slug);
+      setSaveState('saved');
+      setSaveMessage('API slug updated');
+    } catch (error) {
+      setSaveState('error');
+      setSaveMessage(error instanceof Error ? error.message : 'Could not update API slug');
+    }
   };
 
   const handleGridChange = (changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
@@ -420,11 +556,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
       if (!Number.isFinite(columnIndex)) continue;
       const column = columns[columnIndex];
       if (!column) continue;
-      if (rowIndex === 0) {
-        updateHeader(columnIndex, String(nextValue ?? ''));
-      } else {
-        updateCell(rowIndex - 1, column.key, String(nextValue ?? ''));
-      }
+      updateCell(rowIndex, column.key, String(nextValue ?? ''));
     }
   };
 
@@ -461,27 +593,52 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     }
   };
 
+  const populatedRowCount = rows.filter((currentRow) => (
+    Object.values(currentRow.values).some((value) => value.trim() !== '')
+  )).length;
+  const SaveStateIcon = saveState === 'saving'
+    ? LoaderCircle
+    : saveState === 'error'
+      ? CircleAlert
+      : saveState === 'saved'
+        ? Check
+        : Cloud;
+  const saveStateLabel = saveState === 'saving'
+    ? 'Saving changes'
+    : saveState === 'error'
+      ? 'Save needs attention'
+      : saveState === 'saved'
+        ? 'All changes saved'
+        : 'Local draft';
+  const apiEndpoint = sheetForm ? apiURL(sheetForm.generated_table_name) : '';
+  const apiRequests = sheetForm ? [
+    { key: 'read', label: 'Read rows', method: 'GET', value: `GET /api/${sheetForm.generated_table_name}?select=*&limit=20` },
+    { key: 'create', label: 'Create rows', method: 'POST', value: `POST /api/${sheetForm.generated_table_name}` },
+    { key: 'metadata', label: 'Field metadata', method: 'GET', value: `GET /api/sheet_fields?sheet_form_id=eq.${sheetForm.id}&order=position.asc` },
+  ] : [];
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="workspace-switcher">
-          <div className="mark">S</div>
+          <div className="mark" aria-hidden="true"><Database size={16} /></div>
           <div>
             <strong>Sheetbase</strong>
-            <span>Local workspace</span>
+            <span>Data workspace</span>
           </div>
-          <ChevronDown size={16} />
+          <ChevronDown aria-hidden="true" size={14} />
         </div>
 
-        <Button className="nav-action" onClick={createNewForm} type="button" variant="ghost" size="sm">
+        <Button aria-label="New form" className="nav-action" onClick={createNewForm} type="button" variant="ghost" size="sm">
           <Plus data-icon="inline-start" />
-          New form
+          Create Sheet Form
         </Button>
 
         <div className="nav-section">
           <div className="section-title">
             <ChevronDown size={14} />
             Sheet Forms
+            <span className="section-count">{sheetForms.length || 1}</span>
           </div>
           <div className="form-list">
             {(sheetForms.length > 0 ? sheetForms : [{ id: 'draft', name: formName } as SheetForm]).map((form) => (
@@ -502,15 +659,33 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
         </div>
 
         {onSignOut ? (
-          <Button className="nav-action sign-out-action" onClick={onSignOut} type="button" variant="ghost" size="sm">
-            Sign out
-          </Button>
+          <div className="sidebar-footer">
+            <div className={`workspace-health ${backendStatus}`}>
+              <span aria-hidden="true" />
+              {backendStatus === 'connected' ? 'Database connected' : backendStatus === 'offline' ? 'Database unavailable' : 'Checking database'}
+            </div>
+            <Button
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              className="nav-action theme-action"
+              onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+              type="button"
+              variant="ghost"
+              size="sm"
+            >
+              {theme === 'dark' ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
+              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            </Button>
+            <Button className="nav-action sign-out-action" onClick={onSignOut} type="button" variant="ghost" size="sm">
+              Sign out
+            </Button>
+          </div>
         ) : null}
       </aside>
 
       <main className="workspace">
         <header className="topbar">
           <div className="title-block">
+            <Table2 aria-hidden="true" size={15} />
             <Input
               aria-label="Sheet Form name"
               className="title-input"
@@ -519,21 +694,44 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             />
           </div>
           <div className="view-actions">
-            <Button disabled={saveState === 'saving'} onClick={saveToAPI} type="button" size="sm">
-              <Save data-icon="inline-start" />
+            <Button
+              disabled={saveState === 'saving' || backendStatus === 'offline'}
+              onClick={saveToAPI}
+              title={backendStatus === 'offline' ? 'Database unavailable' : undefined}
+              type="button"
+              size="sm"
+            >
+              {saveState === 'saving' ? <LoaderCircle className="spin" data-icon="inline-start" /> : <Save data-icon="inline-start" />}
               {saveState === 'saving' ? 'Saving' : 'Save'}
             </Button>
+            <Button
+              aria-expanded={apiVisible}
+              aria-label="API"
+              onClick={showAPIEndpoint}
+              type="button"
+              variant="outline"
+              size="sm"
+            >
+              <TerminalSquare data-icon="inline-start" />
+              {apiVisible ? 'Hide API' : 'View API'}
+            </Button>
+          </div>
+        </header>
+
+        <div className="table-toolbar" aria-label="Sheet Form tools">
+          <div className="table-context">
+            <span className={`save-status ${saveState}`} title={saveMessage}>
+              <SaveStateIcon aria-hidden="true" className={saveState === 'saving' ? 'spin' : ''} size={13} />
+              {saveStateLabel}
+            </span>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <span>{populatedRowCount} {populatedRowCount === 1 ? 'row' : 'rows'}</span>
+            <span>{columns.length} {columns.length === 1 ? 'field' : 'fields'}</span>
+          </div>
+          <div className="toolbar-actions">
             <Button type="button" aria-label="Add column" onClick={addColumn} variant="outline" size="sm">
               <Plus data-icon="inline-start" />
-              Add column
-            </Button>
-            <Button onClick={showAPIEndpoint} type="button" variant="outline" size="sm">
-              <TerminalSquare data-icon="inline-start" />
-              API
-            </Button>
-            <Button onClick={createNewForm} type="button" variant="outline" size="sm">
-              <Plus data-icon="inline-start" />
-              New form
+              Add field
             </Button>
             <Button onClick={() => stencilInputRef.current?.click()} type="button" variant="outline" size="sm">
               <Import data-icon="inline-start" />
@@ -546,14 +744,21 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               onChange={(event) => void importStencilConfig(event.target.files?.[0])}
               type="file"
             />
-            <Button asChild variant="outline" size="sm">
-              <a href="/admin/export">
+            {sheetForm ? (
+              <Button asChild variant="outline" size="sm">
+                <a href="/admin/export">
+                  <Download data-icon="inline-start" />
+                  Export
+                </a>
+              </Button>
+            ) : (
+              <Button disabled title="Save this Sheet Form before exporting a backup" type="button" variant="outline" size="sm">
                 <Download data-icon="inline-start" />
                 Export
-              </a>
-            </Button>
+              </Button>
+            )}
           </div>
-        </header>
+        </div>
 
         {saveState === 'error' ? (
           <div className="save-error" role="alert">
@@ -561,61 +766,95 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
           </div>
         ) : null}
 
-        {sheetForm && apiVisible ? (
+        {apiVisible ? (
           <section className="api-summary" aria-label="API documentation" ref={apiSummaryRef}>
-            <div className="api-doc-header">
-              <div>
-                <strong>API endpoint</strong>
-                <code>{apiURL(sheetForm.generated_table_name)}</code>
+            {sheetForm ? (
+              <>
+                <div className="api-panel-heading">
+                  <div>
+                    <strong>API access</strong>
+                    <p>Query and update this sheet through its generated REST endpoint.</p>
+                  </div>
+                  <span className="api-live-status"><i aria-hidden="true" /> Live</span>
+                </div>
+                <div className="api-primary">
+                  <div className="api-endpoint">
+                    <span>Endpoint</span>
+                    <div className="api-slug-control">
+                      <code>{window.location.origin}/api/</code>
+                      <input
+                        aria-label="API slug"
+                        onChange={(event) => setSlugDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void saveAPISlug();
+                          if (event.key === 'Escape') setSlugDraft(sheetForm.slug);
+                        }}
+                        spellCheck={false}
+                        value={slugDraft}
+                      />
+                    </div>
+                    <Button disabled={slugDraft.trim() === '' || slugDraft === sheetForm.slug} onClick={() => void saveAPISlug()} type="button" variant="ghost" size="sm">
+                      Save slug
+                    </Button>
+                    <Button aria-label="Copy API endpoint" onClick={() => void copyAPIText('endpoint', apiEndpoint)} type="button" variant="ghost" size="sm">
+                      {copiedSnippet === 'endpoint' ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
+                      {copiedSnippet === 'endpoint' ? 'Copied' : 'Copy'}
+                    </Button>
+                  </div>
+                  <div className="api-request-list" aria-label="Request examples">
+                    {apiRequests.map((request) => (
+                      <div className="api-request" key={request.key}>
+                        <span className="api-request-label">{request.label}</span>
+                        <span className={`api-method ${request.method.toLowerCase()}`}>{request.method}</span>
+                        <code>{request.value}</code>
+                        <Button aria-label={`Copy ${request.label.toLowerCase()} request`} onClick={() => void copyAPIText(request.key, request.value)} type="button" variant="ghost" size="icon-xs">
+                          {copiedSnippet === request.key ? <Check /> : <Copy />}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="api-filter-help">Supports <code>select</code>, <code>order</code>, <code>limit</code>, <code>offset</code>, and PostgREST filters.</p>
+                </div>
+                <aside className="api-schema" aria-label="API schema">
+                  <div className="api-schema-heading">
+                    <strong>Response schema</strong>
+                    <span>{columns.length} {columns.length === 1 ? 'field' : 'fields'}</span>
+                  </div>
+                  <div className="api-schema-fields">
+                    {columns.map((column) => (
+                      <div className="api-schema-field" key={column.key}>
+                        <span>{column.label || column.key}</span>
+                        <code>{column.key}</code>
+                        <em>{column.type}</em>
+                      </div>
+                    ))}
+                  </div>
+                </aside>
+              </>
+            ) : (
+              <div className="api-empty-state">
+                <TerminalSquare aria-hidden="true" size={16} />
+                <div>
+                  <strong>API endpoint not created yet</strong>
+                  <p>Save this Sheet Form to create its API endpoint.</p>
+                </div>
               </div>
-              <span>PostgREST filters, `select`, `order`, `limit`, and `offset` are supported.</span>
-            </div>
-            <div className="api-doc-examples">
-              <div>
-                <strong>Read rows</strong>
-                <code>GET /api/{sheetForm.generated_table_name}?select=*&limit=20</code>
-              </div>
-              <div>
-                <strong>Create rows</strong>
-                <code>POST /api/{sheetForm.generated_table_name}</code>
-              </div>
-              <div>
-                <strong>Metadata</strong>
-                <code>GET /api/sheet_fields?sheet_form_id=eq.{sheetForm.id}&order=position.asc</code>
-              </div>
-            </div>
-            <table className="api-fields">
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Column</th>
-                  <th>Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                {columns.map((column) => (
-                  <tr key={column.key}>
-                    <td>{column.label || column.key}</td>
-                    <td><code>{column.key}</code></td>
-                    <td>{column.type}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            )}
           </section>
         ) : null}
 
         <section
-          className={`table-frame ${sheetForm && apiVisible ? 'with-api-summary' : ''}`}
+          className={`table-frame ${apiVisible ? 'with-api-summary' : ''}`}
           aria-label={`${formName || 'Untitled'} Sheet Form`}
           data-column-widths={columns.map((column) => column.width).join(',')}
+          style={{ colorScheme: theme }}
         >
           <HotTable
             ref={hotRef}
             data={hotData}
             className="sheetbase-hot"
             rowHeaders
-            colHeaders
+            colHeaders={columns.map((column, index) => column.label || `Field ${index + 1}`)}
             colWidths={columns.map((column) => column.width)}
             contextMenu
             manualColumnMove
@@ -623,9 +862,10 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
             minSpareRows={1}
             stretchH="all"
             width="100%"
-            height="100%"
+            height="calc(100% - 28px)"
             licenseKey="non-commercial-and-evaluation"
             afterChange={handleGridChange}
+            afterGetColHeader={renderEditableColumnHeader}
             afterColumnResize={(newSize: number, columnIndex: number) => {
               if (typeof newSize === 'number') void persistColumnResize(columnIndex, newSize);
             }}
@@ -633,6 +873,34 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
               void persistColumnMove(movedColumns, finalIndex, orderChanged);
             }}
           />
+          {headerEditor ? (
+            <input
+              ref={headerInputRef}
+              aria-label={`Edit ${columns[headerEditor.columnIndex]?.label || `Field ${headerEditor.columnIndex + 1}`} column header`}
+              className="column-header-input"
+              defaultValue={columns[headerEditor.columnIndex]?.label ?? ''}
+              onBlur={() => finishHeaderEdit(true)}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  finishHeaderEdit(true);
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  finishHeaderEdit(false);
+                }
+              }}
+              style={{ left: headerEditor.left, top: headerEditor.top + 5, width: Math.max(80, headerEditor.width - 8) }}
+            />
+          ) : null}
+          <footer className="table-statusbar" aria-label="Table status">
+            <span>
+              <span className={`status-dot ${backendStatus}`} aria-hidden="true" />
+              {backendStatus === 'offline' ? 'Offline draft' : sheetForm ? 'Connected to PostgreSQL' : 'Local draft'}
+            </span>
+            <span>Changes save when you choose Save</span>
+            <span className="keyboard-hint"><kbd>↵</kbd> edit cell <kbd>Tab</kbd> move</span>
+          </footer>
           <div className="grid-a11y-mirror" aria-hidden="false">
             {columns.map((column, columnIndex) => (
               <div key={column.key}>

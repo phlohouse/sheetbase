@@ -1,3 +1,4 @@
+import { Database, LockKeyhole } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { App } from './App';
 import { currentUser, loginUser, logoutUser, setupUser } from './auth';
@@ -16,7 +17,7 @@ export function Root() {
   }, []);
 
   if (!ready) {
-    return <div className="auth-shell">Loading</div>;
+    return <div className="auth-shell"><div className="loading-mark" aria-label="Loading Sheetbase"><Database size={18} /></div></div>;
   }
 
   if (!authenticated) {
@@ -50,21 +51,40 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
 
   return (
     <main className="auth-shell">
-      <form className="auth-panel" onSubmit={(event) => void submit(event, 'login')}>
-        <div className="mark">S</div>
-        <h1>Sheetbase</h1>
-        <label>
-          Email
-          <Input autoComplete="email" onChange={(event) => setEmail(event.target.value)} type="email" value={email} />
-        </label>
-        <label>
-          Password
-          <Input autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} type="password" value={password} />
-        </label>
-        {error ? <p className="auth-error">{error}</p> : null}
-        <Button type="submit" size="sm">Sign in</Button>
-        <Button onClick={(event) => void submit(event, 'setup')} type="button" variant="outline" size="sm">Create first admin</Button>
-      </form>
+      <section className="auth-panel">
+        <div className="auth-brand">
+          <div className="auth-brand-lockup">
+            <div className="mark"><Database size={17} /></div>
+            <strong>Sheetbase</strong>
+          </div>
+          <div className="auth-brand-copy">
+            <h1>Your data, structured at the source.</h1>
+            <p>Create spreadsheet-friendly datasets backed by PostgreSQL and available through an API.</p>
+          </div>
+          <div className="auth-proof"><span aria-hidden="true" />PostgreSQL workspace</div>
+        </div>
+        <form className="auth-form" onSubmit={(event) => void submit(event, 'login')}>
+          <div className="auth-form-heading">
+            <div className="auth-form-icon"><LockKeyhole size={16} /></div>
+            <div>
+              <h2>Sign in to Sheetbase</h2>
+              <p>Use your workspace administrator account.</p>
+            </div>
+          </div>
+          <label>
+            Email address
+            <Input aria-label="Email" autoComplete="email" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" value={email} />
+          </label>
+          <label>
+            Password
+            <Input autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" type="password" value={password} />
+          </label>
+          {error ? <p className="auth-error">{error}</p> : null}
+          <Button type="submit" size="sm">Sign in</Button>
+          <div className="auth-separator"><span>New installation?</span></div>
+          <Button onClick={(event) => void submit(event, 'setup')} type="button" variant="outline" size="sm">Create first admin</Button>
+        </form>
+      </section>
     </main>
   );
 }

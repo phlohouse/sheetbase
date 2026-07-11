@@ -123,6 +123,27 @@ begin
 end;
 $$;
 
+create or replace function normalize_api_slug(input text)
+returns text
+language plpgsql
+immutable
+strict
+as $$
+declare
+  normalized text;
+begin
+  normalized := lower(regexp_replace(trim(input), '[^a-zA-Z0-9]+', '-', 'g'));
+  normalized := trim(both '-' from normalized);
+  if normalized = '' then
+    raise exception 'API slug cannot be empty';
+  end if;
+  if normalized ~ '^[0-9]' then
+    normalized := 'sheet-' || normalized;
+  end if;
+  return left(normalized, 48);
+end;
+$$;
+
 create or replace function unique_column_name(base_name text, used_names text[])
 returns text
 language plpgsql
@@ -205,6 +226,9 @@ declare
   used_names text[] := array[]::text[];
   position integer := 0;
   requester uuid;
+  base_slug text;
+  api_slug text;
+  slug_suffix integer := 2;
 begin
   requester := current_sheetbase_user_id();
   if requester is null then
@@ -219,12 +243,16 @@ begin
     raise exception 'at least one header is required';
   end if;
 
+  base_slug := normalize_api_slug(name);
+  api_slug := base_slug;
+  while exists (select 1 from sheet_forms where slug = api_slug)
+    or to_regclass('public.' || quote_ident(api_slug)) is not null loop
+    api_slug := left(base_slug, 44) || '-' || slug_suffix::text;
+    slug_suffix := slug_suffix + 1;
+  end loop;
+
   insert into sheet_forms (slug, name, generated_table_name)
-  values (
-    normalize_identifier(name) || '_' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8),
-    trim(name),
-    'sheet_' || replace(gen_random_uuid()::text, '-', '_')
-  )
+  values (api_slug, trim(name), api_slug)
   returning * into form_row;
 
   execute format(
@@ -279,6 +307,53 @@ begin
   );
   perform pg_notify('pgrst', 'reload schema');
 
+  return form_row;
+end;
+$$;
+
+create or replace function set_sheet_form_slug(sheet_form_id uuid, slug text)
+returns sheet_forms
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  form_row sheet_forms;
+  new_slug text;
+begin
+  select * into form_row from sheet_forms where id = sheet_form_id;
+  if not found then
+    raise exception 'sheet form % not found', sheet_form_id;
+  end if;
+  if not can_access_sheet_form(form_row.id, 'admin') then
+    raise exception 'permission denied for sheet form %', sheet_form_id;
+  end if;
+
+  new_slug := normalize_api_slug(slug);
+  if new_slug = form_row.slug then
+    return form_row;
+  end if;
+  if exists (select 1 from sheet_forms where sheet_forms.slug = new_slug and id != form_row.id)
+    or to_regclass('public.' || quote_ident(new_slug)) is not null then
+    raise exception 'API slug % is already in use', new_slug;
+  end if;
+
+  execute format('drop policy if exists sheetbase_generated_read on %I', form_row.generated_table_name);
+  execute format('drop policy if exists sheetbase_generated_write on %I', form_row.generated_table_name);
+  execute format('drop policy if exists sheetbase_generated_update on %I', form_row.generated_table_name);
+  execute format('drop policy if exists sheetbase_generated_delete on %I', form_row.generated_table_name);
+  execute format('alter table %I rename to %I', form_row.generated_table_name, new_slug);
+
+  update sheet_forms
+  set slug = new_slug, generated_table_name = new_slug
+  where id = form_row.id
+  returning * into form_row;
+
+  execute format('create policy sheetbase_generated_read on %I for select to sheetbase_api using (can_access_sheet_table(%L, ''read''))', new_slug, new_slug);
+  execute format('create policy sheetbase_generated_write on %I for insert to sheetbase_api with check (can_access_sheet_table(%L, ''write''))', new_slug, new_slug);
+  execute format('create policy sheetbase_generated_update on %I for update to sheetbase_api using (can_access_sheet_table(%L, ''write'')) with check (can_access_sheet_table(%L, ''write''))', new_slug, new_slug, new_slug);
+  execute format('create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''admin''))', new_slug, new_slug);
+  perform pg_notify('pgrst', 'reload schema');
   return form_row;
 end;
 $$;
@@ -592,6 +667,7 @@ grant select on sheet_forms, sheet_fields, sheet_views to sheetbase_api;
 grant execute on function create_sheet_form(text, text[]) to sheetbase_api;
 grant execute on function add_sheet_field(uuid, text) to sheetbase_api;
 grant execute on function rename_sheet_form(uuid, text) to sheetbase_api;
+grant execute on function set_sheet_form_slug(uuid, text) to sheetbase_api;
 grant execute on function hide_sheet_field(uuid, uuid) to sheetbase_api;
 grant execute on function tighten_sheet_field_type(uuid, uuid, text) to sheetbase_api;
 grant execute on function update_sheet_view_widths(uuid, jsonb) to sheetbase_api;
@@ -599,3 +675,4 @@ grant execute on function update_sheet_view_column_order(uuid, text[]) to sheetb
 grant execute on function current_sheetbase_user_id() to sheetbase_api;
 grant execute on function can_access_sheet_form(uuid, text) to sheetbase_api;
 grant execute on function can_access_sheet_table(text, text) to sheetbase_api;
+notify pgrst, 'reload schema';

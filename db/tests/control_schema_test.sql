@@ -24,8 +24,8 @@ declare
 begin
   select id, generated_table_name into form_id, generated_table from created_form;
 
-  if generated_table !~ '^sheet_[0-9a-f_]+$' then
-    raise exception 'generated table name was not sanitized: %', generated_table;
+  if generated_table != 'revenue-tracker' then
+    raise exception 'generated table name was %, expected revenue-tracker', generated_table;
   end if;
 
   select array_agg(column_name order by position)

@@ -23,10 +23,10 @@ try {
 
   await page.getByRole('button', { name: 'New form' }).first().click();
   await page.getByLabel('Sheet Form name').fill(formName);
-  await setCell(page, 0, 0, 'Company');
-  await setCell(page, 0, 1, 'Domain');
-  await setCell(page, 1, 0, company);
-  await setCell(page, 1, 1, domain);
+  await renameColumn(page, 'Field 1', 'Company');
+  await renameColumn(page, 'Field 2', 'Domain');
+  await setCell(page, 0, 0, company);
+  await setCell(page, 0, 1, domain);
   await page.getByRole('button', { name: 'Save' }).click();
 
   const forms = await apiEventually(page, `/api/sheet_forms?name=eq.${encodeURIComponent(formName)}&select=generated_table_name`, (value) => value[0]?.generated_table_name);
@@ -56,7 +56,7 @@ versions:
           B: Company
 `),
   });
-  await waitForGridCell(page, 0, 0, 'Full Name');
+  await waitForColumnHeader(page, 0, 'Full Name');
   await page.getByRole('button', { name: 'Save' }).click();
 
   const stencilForms = await apiEventually(page, `/api/sheet_forms?name=eq.${encodeURIComponent(stencilName)}&select=id,generated_table_name`, (value) => value[0]?.generated_table_name);
@@ -73,6 +73,13 @@ versions:
   console.log(`browser smoke passed: ${formName} -> ${tableName}; ${stencilName} -> ${stencilForm.generated_table_name}`);
 } finally {
   await browser.close();
+}
+
+async function renameColumn(page, currentName, nextName) {
+  await page.getByRole('columnheader', { name: currentName, exact: true }).first().dblclick();
+  const input = page.getByRole('textbox', { name: `Edit ${currentName} column header` });
+  await input.fill(nextName);
+  await input.press('Enter');
 }
 
 async function setCell(page, rowIndex, columnIndex, value) {
@@ -102,9 +109,9 @@ async function apiEventually(page, path, done) {
   throw new Error(`${path} did not become ready: ${JSON.stringify(last)}`);
 }
 
-async function waitForGridCell(page, rowIndex, columnIndex, value) {
-  await page.waitForFunction(({ rowIndex: row, columnIndex: column, expected }) => {
-    const cell = document.querySelectorAll('.ht_master .htCore tbody tr')[row]?.querySelectorAll('td')[column];
-    return cell?.textContent?.trim() === expected;
-  }, { rowIndex, columnIndex, expected: value });
+async function waitForColumnHeader(page, columnIndex, value) {
+  await page.waitForFunction(({ columnIndex: column, expected }) => {
+    const header = document.querySelectorAll('.ht_clone_top .htCore thead th .colHeader')[column];
+    return header?.textContent?.trim() === expected;
+  }, { columnIndex, expected: value });
 }

@@ -89,6 +89,21 @@ export async function renameSheetForm(
   });
 }
 
+export async function setSheetFormSlug(
+  sheetFormId: string,
+  slug: string,
+  fetcher: typeof fetch = fetch,
+): Promise<SheetForm> {
+  return request<SheetForm>(`${postgrestUrl}/rpc/set_sheet_form_slug`, fetcher, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ sheet_form_id: sheetFormId, slug }),
+  });
+}
+
 export async function hideSheetField(
   sheetFormId: string,
   fieldId: string,
