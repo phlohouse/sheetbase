@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -28,6 +27,7 @@ type appConfig struct {
 	dbURL         string
 	backupOut     string
 	restoreIn     string
+	runtimeMode   string
 }
 
 type appPaths struct {
@@ -39,6 +39,13 @@ type appPaths struct {
 	postgresData    string
 	postgrestConfig string
 	sheetbaseConfig string
+	runtime         string
+	downloads       string
+	run             string
+	postgresPID     string
+	postgrestPID    string
+	postgresLog     string
+	postgrestLog    string
 }
 
 func initApp(args []string) error {
@@ -70,10 +77,10 @@ func startApp(args []string) (err error) {
 		return err
 	}
 	defer beginCommandLog("start", paths)(&err)
-	if err := requireDockerDaemon(); err != nil {
+	if err := ensureAppHome(paths); err != nil {
 		return err
 	}
-	if err := ensureAppHome(paths); err != nil {
+	if err := writeSheetbaseConfig(paths, cfg, true); err != nil {
 		return err
 	}
 	if err := startPostgres(paths, cfg); err != nil {
@@ -92,6 +99,13 @@ func startApp(args []string) (err error) {
 	return nil
 }
 
+func runManagedApp(args []string) error {
+	if err := startApp(args); err != nil {
+		return err
+	}
+	return serve(args)
+}
+
 func migrateApp(args []string) (err error) {
 	cfg, err := parseAppConfig("migrate", args)
 	if err != nil {
@@ -102,9 +116,6 @@ func migrateApp(args []string) (err error) {
 		return err
 	}
 	defer beginCommandLog("migrate", paths)(&err)
-	if err := requireDockerDaemon(); err != nil {
-		return err
-	}
 	if err := applyMigrations(paths, cfg); err != nil {
 		return err
 	}
@@ -122,6 +133,16 @@ func stopApp(args []string) (err error) {
 		return err
 	}
 	defer beginCommandLog("stop", paths)(&err)
+	if cfg.runtimeMode == "native" {
+		if err := stopNativeProcess(paths.postgrestPID); err != nil {
+			return err
+		}
+		if err := stopNativeProcess(paths.postgresPID); err != nil {
+			return err
+		}
+		fmt.Printf("stopped Sheetbase services from %s\n", paths.home)
+		return nil
+	}
 	if err := requireDockerDaemon(); err != nil {
 		return err
 	}
@@ -146,6 +167,15 @@ func statusApp(args []string) (err error) {
 		return err
 	}
 	defer beginCommandLog("status", paths)(&err)
+	if cfg.runtimeMode == "native" {
+		fmt.Printf("home: %s\n", paths.home)
+		fmt.Printf("runtime: native\n")
+		fmt.Printf("app: %s\n", statusText(httpHealthy(cfg.appAddr)))
+		fmt.Printf("postgres: %s\n", nativeStatusLine(nativeProcessStatus(paths.postgresPID), postgresVersion, cfg.postgresPort))
+		fmt.Printf("postgrest: %s\n", nativeStatusLine(nativeProcessStatus(paths.postgrestPID), postgrestVersion, cfg.postgrestPort))
+		fmt.Printf("logs: %s\n", paths.logs)
+		return nil
+	}
 	postgres := containerStatus(containerName("postgres", paths))
 	postgrest := containerStatus(containerName("postgrest", paths))
 	fmt.Printf("home: %s\n", paths.home)
@@ -174,6 +204,7 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	flags.StringVar(&cfg.dbURL, "db-url", envOrDefault("SHEETBASE_DB_URL", ""), "PostgreSQL URL for auth; empty disables auth")
 	flags.StringVar(&cfg.backupOut, "out", "", "backup file path")
 	flags.StringVar(&cfg.restoreIn, "in", "", "backup file path")
+	flags.StringVar(&cfg.runtimeMode, "runtime", envOrDefault("SHEETBASE_RUNTIME", "native"), "managed runtime: native or docker")
 	if err := flags.Parse(args); err != nil {
 		return appConfig{}, err
 	}
@@ -181,8 +212,14 @@ func parseAppConfig(name string, args []string) (appConfig, error) {
 	flags.Visit(func(flag *flag.Flag) {
 		visited[flag.Name] = true
 	})
-	cfg.home = filepath.Clean(cfg.home)
+	cfg.home, err = filepath.Abs(filepath.Clean(cfg.home))
+	if err != nil {
+		return appConfig{}, fmt.Errorf("resolve Sheetbase home: %w", err)
+	}
 	cfg = mergeFileConfig(cfg, readConfigFile(newAppPaths(cfg.home).sheetbaseConfig), visited)
+	if cfg.runtimeMode != "native" && cfg.runtimeMode != "docker" {
+		return appConfig{}, fmt.Errorf("runtime must be native or docker, got %q", cfg.runtimeMode)
+	}
 	return cfg, nil
 }
 
@@ -190,16 +227,11 @@ func defaultAppHome() (string, error) {
 	if value := os.Getenv("SHEETBASE_HOME"); value != "" {
 		return value, nil
 	}
-	if runtime.GOOS == "linux" {
-		if value := os.Getenv("XDG_DATA_HOME"); value != "" {
-			return filepath.Join(value, "sheetbase"), nil
-		}
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("find home directory: %w", err)
 	}
-	return filepath.Join(home, ".local", "share", "sheetbase"), nil
+	return filepath.Join(home, ".sheetbase"), nil
 }
 
 func newAppPaths(home string) appPaths {
@@ -212,11 +244,18 @@ func newAppPaths(home string) appPaths {
 		postgresData:    filepath.Join(home, "data", "postgres"),
 		postgrestConfig: filepath.Join(home, "config", "postgrest.conf"),
 		sheetbaseConfig: filepath.Join(home, "config", "sheetbase.env"),
+		runtime:         filepath.Join(home, "runtime"),
+		downloads:       filepath.Join(home, "runtime", "downloads"),
+		run:             filepath.Join(home, "run"),
+		postgresPID:     filepath.Join(home, "run", "postgres.pid"),
+		postgrestPID:    filepath.Join(home, "run", "postgrest.pid"),
+		postgresLog:     filepath.Join(home, "logs", "postgres.log"),
+		postgrestLog:    filepath.Join(home, "logs", "postgrest.log"),
 	}
 }
 
 func ensureAppHome(paths appPaths) error {
-	for _, dir := range []string{paths.backups, paths.config, paths.logs, paths.postgresData} {
+	for _, dir := range []string{paths.backups, paths.config, paths.logs, paths.postgresData, paths.runtime, paths.run} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create %s: %w", dir, err)
 		}
@@ -225,13 +264,22 @@ func ensureAppHome(paths appPaths) error {
 }
 
 func startPostgres(paths appPaths, cfg appConfig) error {
-	if containerRunning(containerName("postgres", paths)) {
+	if cfg.runtimeMode == "native" {
+		return startNativePostgres(paths, cfg)
+	}
+	if err := requireDockerDaemon(); err != nil {
+		return err
+	}
+	name := containerName("postgres", paths)
+	status := containerStatus(name)
+	if status.Running && containerPublishesPort(status, "5432/tcp", cfg.postgresPort) {
 		return nil
 	}
+	_ = dockerRm(name)
 	_ = runCommand("", "docker", "network", "create", networkName(paths))
 	if err := runCommand("", "docker", "run",
 		"--detach",
-		"--name", containerName("postgres", paths),
+		"--name", name,
 		"--network", networkName(paths),
 		"--publish", cfg.postgresPort+":5432",
 		"--env", "POSTGRES_PASSWORD=postgres",
@@ -241,9 +289,9 @@ func startPostgres(paths appPaths, cfg appConfig) error {
 		return err
 	}
 	for range 80 {
-		if runCommand("", "docker", "exec", containerName("postgres", paths), "pg_isready", "-U", "postgres") == nil {
+		if runCommand("", "docker", "exec", name, "pg_isready", "-U", "postgres") == nil {
 			time.Sleep(time.Second)
-			if runCommand("", "docker", "exec", containerName("postgres", paths), "pg_isready", "-U", "postgres") == nil {
+			if runCommand("", "docker", "exec", name, "pg_isready", "-U", "postgres") == nil {
 				return nil
 			}
 		}
@@ -265,7 +313,17 @@ func applyMigrations(paths appPaths, cfg appConfig) error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
 		}
-		cmd := exec.Command("docker", "exec", "-i", containerName("postgres", paths), "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres")
+		var cmd *exec.Cmd
+		if cfg.runtimeMode == "native" {
+			native, err := resolveNativeRuntime(paths)
+			if err != nil {
+				return err
+			}
+			cmd = exec.Command(filepath.Join(native.PostgresBin, "psql"), "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-p", cfg.postgresPort, "-U", "postgres", "-d", "postgres")
+			cmd.Env = append(os.Environ(), nativeEnv(native)...)
+		} else {
+			cmd = exec.Command("docker", "exec", "-i", containerName("postgres", paths), "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres")
+		}
 		cmd.Stdin = strings.NewReader(string(sql))
 		output, err := cmd.CombinedOutput()
 		if err != nil {
@@ -276,14 +334,18 @@ func applyMigrations(paths appPaths, cfg appConfig) error {
 }
 
 func writePostgRESTConfig(paths appPaths, cfg appConfig) error {
-	config := fmt.Sprintf(`db-uri = "postgres://postgres:postgres@%s:5432/postgres"
+	host := "127.0.0.1:" + cfg.postgresPort
+	if cfg.runtimeMode == "docker" {
+		host = containerName("postgres", paths) + ":5432"
+	}
+	config := fmt.Sprintf(`db-uri = "postgres://postgres:postgres@%s/postgres"
 db-schemas = "public"
 db-anon-role = "sheetbase_api"
 server-host = "127.0.0.1"
 server-port = %s
 openapi-mode = "follow-privileges"
 jwt-secret = "%s"
-`, containerName("postgres", paths), cfg.postgrestPort, cfg.jwtSecret)
+`, host, cfg.postgrestPort, cfg.jwtSecret)
 	return os.WriteFile(paths.postgrestConfig, []byte(config), 0o644)
 }
 
@@ -295,7 +357,8 @@ func writeSheetbaseConfig(paths appPaths, cfg appConfig, overwrite bool) error {
 SHEETBASE_POSTGRES_PORT=%s
 SHEETBASE_POSTGREST_PORT=%s
 SHEETBASE_JWT_SECRET=%s
-`, cfg.appAddr, cfg.postgresPort, cfg.postgrestPort, cfg.jwtSecret)
+SHEETBASE_RUNTIME=%s
+`, cfg.appAddr, cfg.postgresPort, cfg.postgrestPort, cfg.jwtSecret, cfg.runtimeMode)
 	return os.WriteFile(paths.sheetbaseConfig, []byte(config), 0o600)
 }
 
@@ -336,16 +399,25 @@ func mergeFileConfig(cfg appConfig, values map[string]string, visited map[string
 	if !visited["db-url"] && os.Getenv("SHEETBASE_DB_URL") == "" && values["SHEETBASE_DB_URL"] != "" {
 		cfg.dbURL = values["SHEETBASE_DB_URL"]
 	}
+	if !visited["runtime"] && os.Getenv("SHEETBASE_RUNTIME") == "" && values["SHEETBASE_RUNTIME"] != "" {
+		cfg.runtimeMode = values["SHEETBASE_RUNTIME"]
+	}
 	return cfg
 }
 
 func startPostgREST(paths appPaths, cfg appConfig) error {
-	if containerRunning(containerName("postgrest", paths)) {
+	if cfg.runtimeMode == "native" {
+		return startNativePostgREST(paths, cfg)
+	}
+	name := containerName("postgrest", paths)
+	status := containerStatus(name)
+	if status.Running && containerPublishesPort(status, "3000/tcp", cfg.postgrestPort) {
 		return nil
 	}
+	_ = dockerRm(name)
 	if err := runCommand("", "docker", "run",
 		"--detach",
-		"--name", containerName("postgrest", paths),
+		"--name", name,
 		"--network", networkName(paths),
 		"--publish", cfg.postgrestPort+":3000",
 		"--env", "PGRST_DB_URI=postgres://postgres:postgres@"+containerName("postgres", paths)+":5432/postgres",
@@ -357,14 +429,40 @@ func startPostgREST(paths appPaths, cfg appConfig) error {
 	); err != nil {
 		return err
 	}
-	if err := waitForPort("127.0.0.1:"+cfg.postgrestPort, 5*time.Second); err != nil {
+	if err := waitForPostgREST("http://127.0.0.1:"+cfg.postgrestPort, 5*time.Second); err != nil {
 		return fmt.Errorf("wait for PostgREST: %w", err)
 	}
 	return nil
 }
 
+func waitForPostgREST(url string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	for time.Now().Before(deadline) {
+		request, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		request.Header.Set("Accept", "application/openapi+json")
+		response, err := client.Do(request)
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK && strings.Contains(response.Header.Get("Content-Type"), "application/openapi+json") {
+				return nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("%s did not return a PostgREST OpenAPI response within %s", url, timeout)
+}
+
 func runCommand(_ string, name string, args ...string) error {
+	return runCommandWithEnv(nil, name, args...)
+}
+
+func runCommandWithEnv(env []string, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), env...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
@@ -411,6 +509,10 @@ func dockerRm(name string) error {
 
 func containerRunning(name string) bool {
 	return containerStatus(name).Running
+}
+
+func containerPublishesPort(status dockerContainerStatus, containerPort, hostPort string) bool {
+	return strings.Contains(status.Ports, containerPort+"->") && strings.Contains(status.Ports, ":"+hostPort)
 }
 
 type dockerContainerStatus struct {

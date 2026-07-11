@@ -1,4 +1,8 @@
-.PHONY: api-test app-test build db-test linux managed-test release release-smoke serve test ui-build verify
+.PHONY: api-test app-test build db-test dev-services linux managed-test release release-smoke serve test ui-build verify
+
+SHEETBASE_DEV_HOME ?= .sheetbase
+SHEETBASE_DEV_POSTGRES_PORT ?= 55532
+SHEETBASE_DEV_POSTGREST_PORT ?= 3010
 
 build: ui-build
 	go build -o bin/sheetbase .
@@ -30,8 +34,11 @@ release:
 release-smoke:
 	./scripts/test-release-smoke.sh
 
-serve: ui-build
-	go run . serve
+dev-services:
+	go run . start --home "$(SHEETBASE_DEV_HOME)" --postgres-port "$(SHEETBASE_DEV_POSTGRES_PORT)" --postgrest-port "$(SHEETBASE_DEV_POSTGREST_PORT)"
+
+serve: ui-build dev-services
+	go run . serve --home "$(SHEETBASE_DEV_HOME)" --postgres-port "$(SHEETBASE_DEV_POSTGRES_PORT)" --postgrest-port "$(SHEETBASE_DEV_POSTGREST_PORT)"
 
 ui-build:
 	cd ui && npm run build

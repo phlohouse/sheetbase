@@ -40,6 +40,8 @@ func run(args []string) error {
 		return initApp(args[1:])
 	case "serve":
 		return serve(args[1:])
+	case "run":
+		return runManagedApp(args[1:])
 	case "start":
 		return startApp(args[1:])
 	case "stop":
@@ -53,6 +55,11 @@ func run(args []string) error {
 		return migrateApp(args[1:])
 	case "upgrade":
 		return migrateApp(args[1:])
+	case "runtime":
+		if len(args) < 2 || (args[1] != "install" && args[1] != "update") {
+			return errors.New("usage: sheetbase runtime install [--home DIR]")
+		}
+		return installRuntimeApp(args[2:])
 	case "doctor":
 		return doctorApp(args[1:])
 	case "status":
@@ -120,7 +127,12 @@ func withExportDownload(next http.Handler, paths appPaths, auth *authService) ht
 			}
 			_ = target.Close()
 			defer os.Remove(target.Name())
-			if err := exportToFile(paths, target.Name()); err != nil {
+			cfg, configErr := parseAppConfig("export", []string{"--home", paths.home})
+			if configErr != nil {
+				http.Error(w, configErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err := exportToFile(paths, cfg, target.Name()); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -184,11 +196,13 @@ func printUsage() {
 Usage:
   sheetbase init [--home DIR]
   sheetbase serve [--home DIR] [-addr :8080] [-postgrest-url http://127.0.0.1:3000] [-db-url postgres://...]
+  sheetbase run [--home DIR] [-addr :8080]
   sheetbase start [--home DIR]
   sheetbase stop [--home DIR]
   sheetbase restart [--home DIR]
   sheetbase migrate [--home DIR]
   sheetbase upgrade [--home DIR]
+  sheetbase runtime install [--home DIR]
   sheetbase doctor [--home DIR]
   sheetbase status [--home DIR]
   sheetbase backup [--home DIR] [--out FILE]
@@ -199,11 +213,13 @@ Usage:
 Commands:
   init    Create the Sheetbase home directory and config
   serve   Serve the embedded UI
+  run     Start managed services and serve the UI
   start   Start managed PostgreSQL and PostgREST processes
   stop    Stop managed PostgreSQL and PostgREST processes
   migrate Apply embedded database migrations
   upgrade Apply embedded database migrations
-  doctor  Check required Docker access
+  runtime Download verified PostgreSQL and PostgREST binaries
+  doctor  Check managed runtime requirements
   status  Show managed process status
   backup  Write a PostgreSQL custom-format dump
   export  Write app metadata and a PostgreSQL dump to a tar.gz archive

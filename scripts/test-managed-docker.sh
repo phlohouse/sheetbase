@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export SHEETBASE_RUNTIME=docker
+
 home="$(mktemp -d)"
 
 free_port() {

@@ -1,14 +1,12 @@
 # Install Sheetbase
 
-Sheetbase v1 is a single Linux binary that manages PostgreSQL and PostgREST through Docker.
+Sheetbase is a single binary that downloads and manages its own PostgreSQL and PostgREST runtime under `~/.sheetbase`.
 
 ## Prerequisites
 
-- Linux server
-- Docker daemon running
-- permission for the Sheetbase process to run Docker commands
-
-On a development Mac, Colima is fine for running the same Docker-backed commands.
+- macOS 12 or newer, Debian/Ubuntu Linux, or a RHEL-compatible Linux distribution
+- `tar` with xz support
+- Linux package extraction tools: `dpkg-deb` on Debian/Ubuntu, or `rpm2cpio` and `cpio` on RHEL-compatible systems
 
 ## Build
 
@@ -29,6 +27,7 @@ Copy the binary to the server as `/usr/local/bin/sheetbase`.
 sudo mkdir -p /var/lib/sheetbase
 sudo chown "$USER" /var/lib/sheetbase
 
+sheetbase runtime install --home /var/lib/sheetbase
 sheetbase doctor --home /var/lib/sheetbase
 sheetbase init --home /var/lib/sheetbase
 sheetbase start --home /var/lib/sheetbase
@@ -43,7 +42,9 @@ Open `http://SERVER:8080`, create the first admin user, then create a Sheet Form
 sheetbase status --home /var/lib/sheetbase
 ```
 
-`status` shows the app health plus the managed Postgres/PostgREST Docker containers, images, IDs, and published ports.
+`status` shows app health plus the managed PostgreSQL and PostgREST process versions, PIDs, and ports.
+
+`start` also installs a missing runtime automatically. Downloads are pinned, verified against upstream checksums where published, and cached under `/var/lib/sheetbase/runtime/downloads`. Run `sheetbase runtime update --home /var/lib/sheetbase` to reinstall the pinned versions. Docker remains available as an explicit fallback with `--runtime docker`.
 
 ## systemd
 

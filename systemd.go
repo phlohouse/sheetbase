@@ -34,8 +34,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStartPre=%[1]s start --home %[2]s
-ExecStart=%[1]s serve --home %[2]s -addr %[3]s
+ExecStart=%[1]s run --home %[2]s -addr %[3]s
 ExecStopPost=%[1]s stop --home %[2]s
 Restart=on-failure
 RestartSec=5

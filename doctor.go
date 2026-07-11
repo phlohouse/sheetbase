@@ -7,13 +7,22 @@ import (
 )
 
 func doctorApp(args []string) error {
-	if _, err := parseAppConfig("doctor", args); err != nil {
+	cfg, err := parseAppConfig("doctor", args)
+	if err != nil {
 		return err
+	}
+	if cfg.runtimeMode == "native" {
+		paths := newAppPaths(cfg.home)
+		if _, err := resolveNativeRuntime(paths); err != nil {
+			return fmt.Errorf("%w; install it with `sheetbase runtime install --home %s`", err, paths.home)
+		}
+		fmt.Println("native PostgreSQL and PostgREST runtime found")
+		return nil
 	}
 	if err := requireDockerDaemon(); err != nil {
 		return err
 	}
-	fmt.Println("all required commands found")
+	fmt.Println("Docker runtime is available")
 	return nil
 }
 

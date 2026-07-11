@@ -21,21 +21,18 @@ func exportApp(args []string) (err error) {
 		return err
 	}
 	defer beginCommandLog("export", paths)(&err)
-	if err := requireDockerDaemon(); err != nil {
-		return err
-	}
 	target := cfg.backupOut
 	if target == "" {
 		target = filepath.Join(paths.backups, "sheetbase-export-"+time.Now().UTC().Format("20060102T150405Z")+".tar.gz")
 	}
-	if err := exportToFile(paths, target); err != nil {
+	if err := exportToFile(paths, cfg, target); err != nil {
 		return err
 	}
 	fmt.Printf("export written to %s\n", target)
 	return nil
 }
 
-func exportToFile(paths appPaths, target string) error {
+func exportToFile(paths appPaths, cfg appConfig, target string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
@@ -47,7 +44,7 @@ func exportToFile(paths appPaths, target string) error {
 	defer os.Remove(dump.Name())
 	_ = dump.Close()
 
-	if err := dockerExecToFile(dump.Name(), "exec", containerName("postgres", paths), "pg_dump", "-U", "postgres", "-d", "postgres", "-Fc"); err != nil {
+	if err := databaseDump(paths, cfg, dump.Name()); err != nil {
 		return err
 	}
 	if err := writeExportArchive(target, paths, dump.Name()); err != nil {
