@@ -26,7 +26,7 @@ describe('api client', () => {
     await deleteRow('sheet_abc', 'row-1', fetcher);
     await renameSheetField('form-1', 'field-1', 'Account', fetcher);
 
-    expect(calls[0].input).toContain('/sheet_forms?select=*&order=created_at.desc');
+    expect(calls[0].input).toContain('/internal/sheet_forms?select=*&order=created_at.desc');
     expect(calls[1].input).toContain('/sheet_fields?sheet_form_id=eq.form-1');
     expect(calls[2].input).toContain('/sheet_views?sheet_form_id=eq.form-1');
     expect(calls[3].input).toContain('/rpc/create_sheet_form');

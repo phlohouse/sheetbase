@@ -10,6 +10,7 @@ import {
   Download,
   EyeOff,
   Import,
+  KeyRound,
   LoaderCircle,
   Moon,
   Plus,
@@ -17,6 +18,7 @@ import {
   Sun,
   Table2,
   TerminalSquare,
+  Trash2,
   X,
 } from 'lucide-react';
 import Handsontable from 'handsontable/base';
@@ -28,6 +30,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { addSheetField, createSheetForm, deleteRow, hideSheetField, insertRows, listRows, listSheetFields, listSheetForms, listSheetViews, renameSheetField, renameSheetForm, setSheetFormSlug, SheetField, SheetForm, tightenSheetFieldType, updateRow, updateSheetViewColumnOrder, updateSheetViewWidths } from './api';
 import { headersFromStencilYaml } from './stencil';
+import { createAPIKey, listAPIKeys, revokeAPIKey, type APIKeyRecord } from './api-keys';
 
 registerAllModules();
 
@@ -140,6 +143,12 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
   const [apiVisible, setApiVisible] = useState(() => window.location.hash === '#api');
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
   const [slugDraft, setSlugDraft] = useState('');
+  const [apiKeys, setAPIKeys] = useState<APIKeyRecord[]>([]);
+  const [apiKeyName, setAPIKeyName] = useState('');
+  const [apiKeyCanWrite, setAPIKeyCanWrite] = useState(false);
+  const [apiKeyState, setAPIKeyState] = useState<'idle' | 'loading' | 'saving' | 'error'>('idle');
+  const [apiKeyError, setAPIKeyError] = useState('');
+  const [newAPIKeyToken, setNewAPIKeyToken] = useState('');
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
   const [headerEditor, setHeaderEditor] = useState<{ columnIndex: number; left: number; top: number; width: number } | null>(null);
   const [columnMenu, setColumnMenu] = useState<{ columnIndex: number; left: number; top: number } | null>(null);
@@ -200,7 +209,25 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
 
   useEffect(() => {
     setSlugDraft(sheetForm?.slug ?? '');
+    setAPIKeyName(sheetForm ? `${sheetForm.name} integration` : '');
+    setNewAPIKeyToken('');
   }, [sheetForm?.id, sheetForm?.slug]);
+
+  useEffect(() => {
+    if (!apiVisible || !sheetForm) return;
+    let cancelled = false;
+    setAPIKeyState('loading');
+    void listAPIKeys().then((keys) => {
+      if (cancelled) return;
+      setAPIKeys(keys.filter((key) => key.sheet_form_id === sheetForm.id));
+      setAPIKeyState('idle');
+    }).catch((error) => {
+      if (cancelled) return;
+      setAPIKeyError(error instanceof Error ? error.message : 'Could not load API keys');
+      setAPIKeyState('error');
+    });
+    return () => { cancelled = true; };
+  }, [apiVisible, sheetForm?.id]);
 
   useEffect(() => {
     if (headerEditor) headerInputRef.current?.focus();
@@ -667,6 +694,32 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
     }
   };
 
+  const createSheetAPIKey = async () => {
+    if (!sheetForm || apiKeyName.trim() === '') return;
+    setAPIKeyState('saving');
+    setAPIKeyError('');
+    try {
+      const key = await createAPIKey(apiKeyName.trim(), sheetForm.id, apiKeyCanWrite);
+      setAPIKeys((current) => [key, ...current]);
+      setNewAPIKeyToken(key.token);
+      setAPIKeyName(`${sheetForm.name} integration`);
+      setAPIKeyState('idle');
+    } catch (error) {
+      setAPIKeyError(error instanceof Error ? error.message : 'Could not create API key');
+      setAPIKeyState('error');
+    }
+  };
+
+  const revokeSheetAPIKey = async (id: string) => {
+    setAPIKeyError('');
+    try {
+      await revokeAPIKey(id);
+      setAPIKeys((current) => current.map((key) => key.id === id ? { ...key, revoked_at: new Date().toISOString() } : key));
+    } catch (error) {
+      setAPIKeyError(error instanceof Error ? error.message : 'Could not revoke API key');
+    }
+  };
+
   const handleGridChange = (changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData') return;
     for (const [rowIndex, prop, previousValue, nextValue] of changes) {
@@ -960,7 +1013,7 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                         <span className="api-request-label">{request.label}</span>
                         <span className={`api-method ${request.method.toLowerCase()}`}>{request.method}</span>
                         <code>{request.path}</code>
-                        <Button aria-label={`Copy ${request.label.toLowerCase()} request`} onClick={() => void copyAPIText(request.key, `${window.location.origin}${request.path}`)} type="button" variant="ghost" size="icon-xs">
+                        <Button aria-label={`Copy ${request.label.toLowerCase()} request`} onClick={() => void copyAPIText(request.key, `curl -H "X-API-Key: $SHEETBASE_API_KEY" "${window.location.origin}${request.path}"`)} type="button" variant="ghost" size="icon-xs">
                           {copiedSnippet === request.key ? <Check /> : <Copy />}
                         </Button>
                       </div>
@@ -983,6 +1036,49 @@ export function App({ onSignOut }: { onSignOut?: () => void }) {
                     ))}
                   </div>
                 </aside>
+                <section className="api-key-manager" aria-label="API keys">
+                  <div className="api-key-heading">
+                    <div>
+                      <strong><KeyRound aria-hidden="true" size={14} /> API keys</strong>
+                      <p>Keys are independent from Sheetbase sign-in and apply only to this Sheet Form.</p>
+                    </div>
+                    <span>{apiKeys.filter((key) => !key.revoked_at).length} active</span>
+                  </div>
+                  {newAPIKeyToken ? (
+                    <div className="api-key-reveal" role="status">
+                      <div><strong>Copy this key now</strong><span>It will not be shown again.</span></div>
+                      <code>{newAPIKeyToken}</code>
+                      <Button onClick={() => void copyAPIText('api-key', newAPIKeyToken)} type="button" variant="outline" size="sm">
+                        {copiedSnippet === 'api-key' ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
+                        {copiedSnippet === 'api-key' ? 'Copied' : 'Copy key'}
+                      </Button>
+                      <Button aria-label="Dismiss API key" onClick={() => setNewAPIKeyToken('')} type="button" variant="ghost" size="icon-xs"><X /></Button>
+                    </div>
+                  ) : null}
+                  <div className="api-key-create">
+                    <Input aria-label="API key name" onChange={(event) => setAPIKeyName(event.target.value)} placeholder="Production sync" value={apiKeyName} />
+                    <select aria-label="API key access" onChange={(event) => setAPIKeyCanWrite(event.target.value === 'write')} value={apiKeyCanWrite ? 'write' : 'read'}>
+                      <option value="read">Read only</option>
+                      <option value="write">Read and write</option>
+                    </select>
+                    <Button disabled={apiKeyName.trim() === '' || apiKeyState === 'saving'} onClick={() => void createSheetAPIKey()} type="button" size="sm">
+                      <Plus data-icon="inline-start" />{apiKeyState === 'saving' ? 'Creating' : 'Create key'}
+                    </Button>
+                  </div>
+                  {apiKeyError ? <p className="api-key-error" role="alert">{apiKeyError}</p> : null}
+                  <div className="api-key-list">
+                    {apiKeyState === 'loading' ? <p>Loading keys…</p> : null}
+                    {apiKeyState !== 'loading' && apiKeys.length === 0 ? <p>No keys yet. Create one for an integration or script.</p> : null}
+                    {apiKeys.map((key) => (
+                      <div className={`api-key-row ${key.revoked_at ? 'revoked' : ''}`} key={key.id}>
+                        <div><strong>{key.name}</strong><code>{key.token_prefix}…</code></div>
+                        <span>{key.can_write ? 'Read and write' : 'Read only'}</span>
+                        <time dateTime={key.last_used_at ?? key.created_at}>{key.last_used_at ? `Used ${new Date(key.last_used_at).toLocaleDateString()}` : 'Never used'}</time>
+                        {key.revoked_at ? <em>Revoked</em> : <Button aria-label={`Revoke ${key.name}`} onClick={() => void revokeSheetAPIKey(key.id)} type="button" variant="ghost" size="icon-xs"><Trash2 /></Button>}
+                      </div>
+                    ))}
+                  </div>
+                </section>
               </>
             ) : (
               <div className="api-empty-state">

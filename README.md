@@ -50,5 +50,4 @@ Useful commands:
 
 Native mode is the default on macOS and Linux. PostgreSQL comes from EDB on macOS and official PGDG DEB/RPM repositories on Linux; PostgREST comes from its official GitHub release. Downloads are pinned and cached under `<home>/runtime/downloads`. Use `--runtime docker` or `SHEETBASE_RUNTIME=docker` for the legacy container mode.
 `init` writes `.sheetbase/config/sheetbase.env`; flags and environment variables override it.
-When `serve` has a `-db-url`, `/api` is protected by `POST /auth/setup`,
-`POST /auth/login`, `GET /auth/me`, and `POST /auth/logout`.
+Sheetbase administration and API authentication are independent. The browser uses a private `/internal` proxy protected by the `sheetbase_session` cookie. Public `/api` requests require a scoped API key in `X-API-Key` or `Authorization: Bearer …`; Sheetbase cookies are ignored on that route. Create and revoke keys from the API panel. Admin sign-in uses `POST /auth/setup`, `POST /auth/login`, `GET /auth/me`, and `POST /auth/logout`.

@@ -19,10 +19,12 @@ import (
 )
 
 type authService struct {
-	store     userStore
-	jwtSecret string
-	sessions  map[string]sessionRecord
-	mu        sync.Mutex
+	store           userStore
+	apiKeys         apiKeyStore
+	jwtSecret       string
+	sessions        map[string]sessionRecord
+	revokedSessions map[string]time.Time
+	mu              sync.Mutex
 }
 
 type sessionRecord struct {
@@ -50,7 +52,7 @@ func newAuthService(dbURL, jwtSecret string) (*authService, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("connect auth database: %w", err)
 	}
-	return &authService{store: sqlUserStore{db: db}, jwtSecret: jwtSecret, sessions: map[string]sessionRecord{}}, nil
+	return &authService{store: sqlUserStore{db: db}, apiKeys: sqlAPIKeyStore{db: db}, jwtSecret: jwtSecret, sessions: map[string]sessionRecord{}, revokedSessions: map[string]time.Time{}}, nil
 }
 
 func (a *authService) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +106,10 @@ func (a *authService) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		a.mu.Lock()
 		delete(a.sessions, cookie.Value)
+		if a.revokedSessions == nil {
+			a.revokedSessions = map[string]time.Time{}
+		}
+		a.revokedSessions[cookie.Value] = time.Now().Add(24 * time.Hour)
 		a.mu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{Name: "sheetbase_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
@@ -123,11 +129,17 @@ func (a *authService) userID(r *http.Request) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if expires, revoked := a.revokedSessions[cookie.Value]; revoked {
+		if time.Now().Before(expires) {
+			return "", false
+		}
+		delete(a.revokedSessions, cookie.Value)
+	}
 	if userID, ok := a.signedSessionUserID(cookie.Value); ok {
 		return userID, true
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	session, ok := a.sessions[cookie.Value]
 	if !ok {
 		return "", false
@@ -187,10 +199,19 @@ func (a *authService) signedSessionUserID(value string) (string, bool) {
 }
 
 func (a *authService) jwt(userID string) string {
+	return a.jwtFor(userID, "user")
+}
+
+func (a *authService) apiKeyJWT(apiKeyID string) string {
+	return a.jwtFor(apiKeyID, "api_key")
+}
+
+func (a *authService) jwtFor(subject, kind string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	payload, _ := json.Marshal(map[string]any{
-		"sub":  userID,
+		"sub":  subject,
 		"role": "sheetbase_api",
+		"kind": kind,
 		"exp":  time.Now().Add(15 * time.Minute).Unix(),
 	})
 	unsigned := header + "." + base64.RawURLEncoding.EncodeToString(payload)

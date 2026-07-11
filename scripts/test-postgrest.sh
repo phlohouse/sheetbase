@@ -25,10 +25,16 @@ docker run \
   postgres:16-alpine >/dev/null
 
 postgres_ready="no"
+consecutive=0
 for _ in $(seq 1 40); do
   if docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'select 1' >/dev/null 2>&1; then
-    postgres_ready="yes"
-    break
+    consecutive=$((consecutive + 1))
+    if [[ "$consecutive" -ge 2 ]]; then
+      postgres_ready="yes"
+      break
+    fi
+  else
+    consecutive=0
   fi
   sleep 0.5
 done
@@ -38,8 +44,8 @@ if [[ "$postgres_ready" != "yes" ]]; then
   exit 1
 fi
 
-docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'select 1' >/dev/null
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/001_control_schema.sql >/dev/null
+docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/migrations/002_api_keys.sql >/dev/null
 docker exec "$postgres" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c \
   "insert into users (id, email, password_hash) values ('$user_id', 'api@example.com', 'hash')" >/dev/null
 
@@ -105,7 +111,7 @@ form_json="$(
 generated_table="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
 form_id="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
-if [[ ! "$generated_table" =~ ^sheet_[0-9a-f_]+$ ]]; then
+if [[ ! "$generated_table" =~ ^[a-z][a-z0-9-]*$ ]]; then
   echo "Generated table was not exposed in expected shape: $generated_table" >&2
   exit 1
 fi

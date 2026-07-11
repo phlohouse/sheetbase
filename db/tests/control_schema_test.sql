@@ -3,6 +3,7 @@
 begin;
 
 \i /work/db/migrations/001_control_schema.sql
+\i /work/db/migrations/002_api_keys.sql
 
 insert into users (id, email, password_hash)
 values
@@ -14,6 +15,28 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001
 create temp table created_form as
 select *
 from create_sheet_form('Revenue Tracker', array['1 Revenue', 'Company Name', 'Company Name']);
+
+insert into api_keys (id, name, token_hash, token_prefix)
+values ('00000000-0000-0000-0000-000000000100', 'Read integration', 'hash-100', 'sbk_example');
+
+insert into api_key_permissions (api_key_id, sheet_form_id, can_read, can_write)
+select '00000000-0000-0000-0000-000000000100', id, true, false from created_form;
+
+select set_config('request.jwt.claim.kind', 'api_key', true);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000100', true);
+
+do $$
+declare form_id uuid;
+begin
+  select id into form_id from created_form;
+  if not can_access_sheet_form(form_id, 'read') then raise exception 'API key should have read access'; end if;
+  if can_access_sheet_form(form_id, 'write') then raise exception 'read-only API key should not have write access'; end if;
+  if can_access_sheet_form(form_id, 'admin') then raise exception 'API key should never have admin access'; end if;
+end;
+$$;
+
+select set_config('request.jwt.claim.kind', 'user', true);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 
 do $$
 declare

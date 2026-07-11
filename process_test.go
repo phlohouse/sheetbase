@@ -52,6 +52,13 @@ func TestInitAppCreatesHomeLayoutAndPostgRESTConfig(t *testing.T) {
 	if !strings.Contains(text, `jwt-secret = "`) {
 		t.Fatalf("config does not contain JWT secret: %s", text)
 	}
+	configInfo, err := os.Stat(filepath.Join(home, "config", "postgrest.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("postgrest config mode = %o", configInfo.Mode().Perm())
+	}
 
 	appConfig, err := os.ReadFile(filepath.Join(home, "config", "sheetbase.env"))
 	if err != nil {
@@ -230,6 +237,16 @@ func TestParseAppConfigUsesEnvironmentDefaults(t *testing.T) {
 	}
 	if cfg.jwtSecret != "test-secret" {
 		t.Fatalf("jwtSecret = %q", cfg.jwtSecret)
+	}
+}
+
+func TestSecureJWTSecretReplacesDevelopmentDefault(t *testing.T) {
+	cfg, err := withSecureJWTSecret(appConfig{jwtSecret: defaultJWTSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.jwtSecret == defaultJWTSecret || len(cfg.jwtSecret) < 48 {
+		t.Fatalf("generated secret is not secure")
 	}
 }
 

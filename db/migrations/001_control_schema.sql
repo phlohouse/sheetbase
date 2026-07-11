@@ -193,6 +193,7 @@ as $$
       and (
         access = 'read' and (p.can_read or p.can_write or p.can_admin)
         or access = 'write' and (p.can_write or p.can_admin)
+        or access = 'delete' and p.can_admin
         or access = 'admin' and p.can_admin
       )
   );
@@ -301,7 +302,7 @@ begin
     form_row.generated_table_name
   );
   execute format(
-    'create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''admin''))',
+    'create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''delete''))',
     form_row.generated_table_name,
     form_row.generated_table_name
   );
@@ -352,7 +353,7 @@ begin
   execute format('create policy sheetbase_generated_read on %I for select to sheetbase_api using (can_access_sheet_table(%L, ''read''))', new_slug, new_slug);
   execute format('create policy sheetbase_generated_write on %I for insert to sheetbase_api with check (can_access_sheet_table(%L, ''write''))', new_slug, new_slug);
   execute format('create policy sheetbase_generated_update on %I for update to sheetbase_api using (can_access_sheet_table(%L, ''write'')) with check (can_access_sheet_table(%L, ''write''))', new_slug, new_slug, new_slug);
-  execute format('create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''admin''))', new_slug, new_slug);
+  execute format('create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''delete''))', new_slug, new_slug);
   perform pg_notify('pgrst', 'reload schema');
   return form_row;
 end;
@@ -679,7 +680,7 @@ begin
     );
     execute format('drop policy if exists sheetbase_generated_delete on %I', form_row.generated_table_name);
     execute format(
-      'create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''admin''))',
+      'create policy sheetbase_generated_delete on %I for delete to sheetbase_api using (can_access_sheet_table(%L, ''delete''))',
       form_row.generated_table_name,
       form_row.generated_table_name
     );

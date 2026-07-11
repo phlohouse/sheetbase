@@ -89,6 +89,9 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	if cfg.dbURL != "" && cfg.jwtSecret == defaultJWTSecret {
+		return errors.New("refusing to serve with the development JWT secret; run `sheetbase init` or `sheetbase start` first")
+	}
 	if err := setupAppLogging(newAppPaths(cfg.home)); err != nil {
 		return err
 	}
@@ -249,7 +252,7 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logged := strings.HasPrefix(r.URL.Path, "/api") || strings.HasPrefix(r.URL.Path, "/auth/")
+		logged := strings.HasPrefix(r.URL.Path, "/api") || strings.HasPrefix(r.URL.Path, "/internal") || strings.HasPrefix(r.URL.Path, "/auth/") || strings.HasPrefix(r.URL.Path, "/admin/")
 		recorder := &responseLogWriter{ResponseWriter: w, status: http.StatusOK}
 		if logged {
 			defer func(start time.Time) {
@@ -273,8 +276,12 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 			handleAuth(auth, w, r)
 			return
 		}
+		if auth != nil && strings.HasPrefix(r.URL.Path, "/admin/api-keys") {
+			handleAPIKeys(auth, w, r)
+			return
+		}
 
-		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+		if r.URL.Path == "/internal" || strings.HasPrefix(r.URL.Path, "/internal/") {
 			if auth != nil {
 				userID, ok := auth.userID(r)
 				if !ok {
@@ -283,6 +290,23 @@ func newUIHandler(postgrestURL string, auth *authService) (http.Handler, error) 
 				}
 				r.Header.Set("Authorization", "Bearer "+auth.jwt(userID))
 			}
+			apiProxy.ServeHTTP(w, r)
+			return
+		}
+
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			if auth == nil {
+				http.Error(w, "API key authentication is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			apiKeyID, ok := auth.authenticateAPIKey(r)
+			if !ok {
+				http.Error(w, "invalid or missing API key", http.StatusUnauthorized)
+				return
+			}
+			r.Header.Del("X-API-Key")
+			r.Header.Del("Cookie")
+			r.Header.Set("Authorization", "Bearer "+auth.apiKeyJWT(apiKeyID))
 			apiProxy.ServeHTTP(w, r)
 			return
 		}
@@ -332,6 +356,7 @@ func newAPIProxy(rawURL string) (http.Handler, error) {
 		r.URL.Scheme = target.Scheme
 		r.URL.Host = target.Host
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/api")
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/internal")
 		if r.URL.Path == "" {
 			r.URL.Path = "/"
 		}

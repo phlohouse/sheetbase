@@ -881,6 +881,163 @@ input:focus-visible {
   font-style: normal;
 }
 
+.api-key-manager {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.api-key-heading,
+.api-key-heading strong,
+.api-key-reveal,
+.api-key-create,
+.api-key-row,
+.api-key-row > div {
+  display: flex;
+  align-items: center;
+}
+
+.api-key-heading {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.api-key-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.api-key-heading strong {
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.api-key-heading p,
+.api-key-list > p,
+.api-key-error {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.api-key-heading > span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.api-key-create {
+  gap: 8px;
+}
+
+.api-key-create input {
+  width: min(280px, 34vw);
+  height: 32px;
+}
+
+.api-key-create select {
+  height: 32px;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.api-key-create select:focus-visible {
+  border-color: var(--focus);
+  outline: 2px solid oklch(0.59 0.2 264 / 0.14);
+}
+
+.api-key-reveal {
+  gap: 10px;
+  min-height: 42px;
+  padding: 6px 7px 6px 10px;
+  border: 1px solid oklch(0.86 0.08 90);
+  border-radius: 8px;
+  background: var(--warning-soft);
+}
+
+.api-key-reveal > div {
+  display: grid;
+  min-width: 118px;
+}
+
+.api-key-reveal strong,
+.api-key-reveal span {
+  font-size: 11px;
+}
+
+.api-key-reveal span {
+  color: var(--text-muted);
+}
+
+.api-key-reveal code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-key-list {
+  max-height: 104px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+
+.api-key-list > p {
+  padding: 8px 0;
+}
+
+.api-key-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 120px 100px 60px;
+  gap: 10px;
+  min-height: 34px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.api-key-row > div {
+  min-width: 0;
+  gap: 8px;
+}
+
+.api-key-row strong {
+  overflow: hidden;
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-key-row code,
+.api-key-row time,
+.api-key-row > span,
+.api-key-row em {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.api-key-row.revoked {
+  opacity: 0.58;
+}
+
+.api-key-row > em,
+.api-key-row > [data-slot='button'] {
+  justify-self: end;
+}
+
+.api-key-error {
+  color: var(--danger);
+}
+
 .table-frame {
   position: relative;
   flex: 1 1 auto;

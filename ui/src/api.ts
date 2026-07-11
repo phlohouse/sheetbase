@@ -22,7 +22,7 @@ export interface SheetView {
   sort_filter_state: { column_order?: string[] };
 }
 
-const postgrestUrl = import.meta.env.VITE_POSTGREST_URL ?? '/api';
+const postgrestUrl = import.meta.env.VITE_POSTGREST_URL ?? '/internal';
 
 export async function listSheetForms(fetcher: typeof fetch = fetch): Promise<SheetForm[]> {
   return request<SheetForm[]>(`${postgrestUrl}/sheet_forms?select=*&order=created_at.desc`, fetcher);

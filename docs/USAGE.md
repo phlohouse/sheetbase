@@ -35,12 +35,12 @@ The UI shows the generated endpoint for the active Sheet Form, for example:
 /api/sheet_companies
 ```
 
-Use the browser session cookie or an authenticated client request against the same app server:
+Create an API key from the saved Sheet Form's API panel, then send it with each request:
 
 ```sh
-curl --cookie cookies.txt 'http://SERVER:8080/api/sheet_forms?select=name,generated_table_name'
-curl --cookie cookies.txt 'http://SERVER:8080/api/sheet_companies?select=*&limit=20'
-curl --cookie cookies.txt 'http://SERVER:8080/api/sheet_companies?company=eq.Acme%20Labs'
+curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/sheet_forms?select=name,generated_table_name'
+curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/sheet_companies?select=*&limit=20'
+curl -H "X-API-Key: $SHEETBASE_API_KEY" 'http://SERVER:8080/api/sheet_companies?company=eq.Acme%20Labs'
 ```
 
-The `/api` paths are proxied to PostgREST, so standard PostgREST filters, ordering, pagination, and `select` parameters apply.
+API keys are independent from Sheetbase sign-in, stored as hashes, scoped to one Sheet Form, and can be read-only or read/write. Revoking a key takes effect on its next request without signing anyone out of Sheetbase. The `/api` paths are proxied to PostgREST, so standard PostgREST filters, ordering, pagination, and `select` parameters apply.

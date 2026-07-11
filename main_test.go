@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -42,7 +43,7 @@ func TestUIHandlerServesAppShellAndHealth(t *testing.T) {
 	}
 }
 
-func TestUIHandlerProxiesAPIToPostgREST(t *testing.T) {
+func TestUIHandlerProxiesInternalRequestsToPostgREST(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.String() != "/sheet_forms?select=*" {
 			t.Fatalf("proxied URL = %q", r.URL.String())
@@ -56,19 +57,19 @@ func TestUIHandlerProxiesAPIToPostgREST(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms?select=*", nil)
+	req := httptest.NewRequest(http.MethodGet, "/internal/sheet_forms?select=*", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
 	if res.Code != http.StatusOK {
-		t.Fatalf("GET /api/sheet_forms status = %d, want %d", res.Code, http.StatusOK)
+		t.Fatalf("GET /internal/sheet_forms status = %d, want %d", res.Code, http.StatusOK)
 	}
 	if strings.TrimSpace(res.Body.String()) != `[{"name":"Companies"}]` {
 		t.Fatalf("proxied body = %q", res.Body.String())
 	}
 }
 
-func TestAuthProtectsAPIProxy(t *testing.T) {
+func TestSheetbaseSessionProtectsOnlyInternalProxy(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 			t.Fatalf("missing bearer token: %q", r.Header.Get("Authorization"))
@@ -83,11 +84,11 @@ func TestAuthProtectsAPIProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
+	req := httptest.NewRequest(http.MethodGet, "/internal/sheet_forms", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated API status = %d, want %d", res.Code, http.StatusUnauthorized)
+		t.Fatalf("unauthenticated internal status = %d, want %d", res.Code, http.StatusUnauthorized)
 	}
 
 	login := httptest.NewRequest(http.MethodPost, "/auth/setup", strings.NewReader(`{"email":"admin@example.com","password":"long-enough-password"}`))
@@ -96,13 +97,44 @@ func TestAuthProtectsAPIProxy(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("setup status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
 	}
+	sessionCookie := res.Result().Cookies()[0]
 
-	req = httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
-	req.AddCookie(res.Result().Cookies()[0])
+	req = httptest.NewRequest(http.MethodGet, "/internal/sheet_forms", nil)
+	req.AddCookie(sessionCookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
-		t.Fatalf("authenticated API status = %d, want %d", res.Code, http.StatusOK)
+		t.Fatalf("authenticated internal status = %d, want %d", res.Code, http.StatusOK)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
+	req.AddCookie(sessionCookie)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("Sheetbase cookie authorized public API: status %d", res.Code)
+	}
+}
+
+func TestAPIKeyAuthenticatesPublicProxyWithoutSheetbaseSession(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			t.Fatalf("missing PostgREST JWT")
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer backend.Close()
+	auth := &authService{apiKeys: &fakeAPIKeyStore{authenticatedID: "00000000-0000-0000-0000-000000000123"}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	handler, err := newUIHandler(backend.URL, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms", nil)
+	req.Header.Set("X-API-Key", "sbk_test-token")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("API key status = %d: %s", res.Code, res.Body.String())
 	}
 }
 
@@ -133,12 +165,14 @@ func TestUIHandlerLogsAPIRequests(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	handler, err := newUIHandler(backend.URL, nil)
+	auth := &authService{apiKeys: &fakeAPIKeyStore{authenticatedID: "00000000-0000-0000-0000-000000000123"}, jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	handler, err := newUIHandler(backend.URL, auth)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sheet_forms?select=*", nil)
+	req.Header.Set("X-API-Key", "sbk_test-token")
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
@@ -192,6 +226,21 @@ func TestSignedSessionSurvivesRestart(t *testing.T) {
 	userID, ok := restarted.userID(req)
 	if !ok || userID != "user-1" {
 		t.Fatalf("session after restart = %q, %v; want user-1, true", userID, ok)
+	}
+}
+
+func TestLogoutRevokesCopiedSessionCookie(t *testing.T) {
+	auth := &authService{jwtSecret: defaultJWTSecret, sessions: map[string]sessionRecord{}}
+	login := httptest.NewRecorder()
+	auth.setSession(login, "user-1")
+	cookie := login.Result().Cookies()[0]
+	request := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	request.AddCookie(cookie)
+	auth.handleLogout(httptest.NewRecorder(), request)
+	copyRequest := httptest.NewRequest(http.MethodGet, "/internal/sheet_forms", nil)
+	copyRequest.AddCookie(cookie)
+	if _, ok := auth.userID(copyRequest); ok {
+		t.Fatal("copied cookie remained valid after logout")
 	}
 }
 
@@ -291,6 +340,22 @@ func TestSetupAppLoggingWritesUnderHome(t *testing.T) {
 
 type fakeUserStore struct {
 	user userRecord
+}
+
+type fakeAPIKeyStore struct{ authenticatedID string }
+
+func (s *fakeAPIKeyStore) create(_ context.Context, _, name, _, prefix, sheetFormID string, canRead, canWrite bool) (apiKeyRecord, error) {
+	return apiKeyRecord{ID: "key-1", Name: name, TokenPrefix: prefix, SheetFormID: sheetFormID, CanRead: canRead, CanWrite: canWrite}, nil
+}
+func (s *fakeAPIKeyStore) list(context.Context, string) ([]apiKeyRecord, error) {
+	return []apiKeyRecord{}, nil
+}
+func (s *fakeAPIKeyStore) revoke(context.Context, string, string) error { return nil }
+func (s *fakeAPIKeyStore) authenticate(context.Context, string) (string, error) {
+	if s.authenticatedID == "" {
+		return "", errors.New("not found")
+	}
+	return s.authenticatedID, nil
 }
 
 func (s *fakeUserStore) createFirstUser(_ context.Context, email, passwordHash string) (string, error) {

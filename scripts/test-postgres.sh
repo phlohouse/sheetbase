@@ -16,10 +16,16 @@ docker run \
   postgres:16-alpine >/dev/null
 
 ready="no"
+consecutive=0
 for _ in $(seq 1 40); do
   if docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'select 1' >/dev/null 2>&1; then
-    ready="yes"
-    break
+    consecutive=$((consecutive + 1))
+    if [[ "$consecutive" -ge 2 ]]; then
+      ready="yes"
+      break
+    fi
+  else
+    consecutive=0
   fi
   sleep 0.5
 done
@@ -29,5 +35,4 @@ if [[ "$ready" != "yes" ]]; then
   exit 1
 fi
 
-docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'select 1' >/dev/null
 docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -f /work/db/tests/control_schema_test.sql

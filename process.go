@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -60,6 +62,10 @@ func initApp(args []string) error {
 	if err := ensureAppHome(paths); err != nil {
 		return err
 	}
+	cfg, err = withSecureJWTSecret(cfg)
+	if err != nil {
+		return err
+	}
 	if err := writeSheetbaseConfig(paths, cfg, false); err != nil {
 		return err
 	}
@@ -81,6 +87,10 @@ func startApp(args []string) (err error) {
 	}
 	defer beginCommandLog("start", paths)(&err)
 	if err := ensureAppHome(paths); err != nil {
+		return err
+	}
+	cfg, err = withSecureJWTSecret(cfg)
+	if err != nil {
 		return err
 	}
 	if err := writeSheetbaseConfig(paths, cfg, true); err != nil {
@@ -381,6 +391,18 @@ func defaultAppHome() (string, error) {
 	return filepath.Join(home, ".sheetbase"), nil
 }
 
+func withSecureJWTSecret(cfg appConfig) (appConfig, error) {
+	if cfg.jwtSecret != defaultJWTSecret {
+		return cfg, nil
+	}
+	secret := make([]byte, 48)
+	if _, err := rand.Read(secret); err != nil {
+		return appConfig{}, fmt.Errorf("generate JWT secret: %w", err)
+	}
+	cfg.jwtSecret = base64.RawURLEncoding.EncodeToString(secret)
+	return cfg, nil
+}
+
 func newAppPaths(home string) appPaths {
 	return appPaths{
 		home:            home,
@@ -431,7 +453,7 @@ func startPostgres(paths appPaths, cfg appConfig) error {
 		"--detach",
 		"--name", name,
 		"--network", networkName(paths),
-		"--publish", cfg.postgresPort+":5432",
+		"--publish", "127.0.0.1:"+cfg.postgresPort+":5432",
 		"--env", "POSTGRES_PASSWORD=postgres",
 		"--volume", paths.postgresData+":/var/lib/postgresql/data",
 		"postgres:16-alpine",
@@ -496,7 +518,10 @@ server-port = %s
 openapi-mode = "follow-privileges"
 jwt-secret = "%s"
 `, host, cfg.postgrestPort, cfg.jwtSecret)
-	return os.WriteFile(paths.postgrestConfig, []byte(config), 0o644)
+	if err := os.WriteFile(paths.postgrestConfig, []byte(config), 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(paths.postgrestConfig, 0o600)
 }
 
 func writeSheetbaseConfig(paths appPaths, cfg appConfig, overwrite bool) error {
@@ -571,7 +596,7 @@ func startPostgREST(paths appPaths, cfg appConfig) error {
 		"--detach",
 		"--name", name,
 		"--network", networkName(paths),
-		"--publish", cfg.postgrestPort+":3000",
+		"--publish", "127.0.0.1:"+cfg.postgrestPort+":3000",
 		"--env", "PGRST_DB_URI=postgres://postgres:postgres@"+containerName("postgres", paths)+":5432/postgres",
 		"--env", "PGRST_DB_SCHEMAS=public",
 		"--env", "PGRST_DB_ANON_ROLE=sheetbase_api",
