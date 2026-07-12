@@ -115,11 +115,40 @@ if [[ "$unauth_status" != "401" ]]; then
 fi
 
 cookie_file="$(mktemp)"
-curl --fail --silent \
-  --cookie-jar "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --data '{"email":"admin@example.com","password":"long-enough-password"}' \
-  "http://127.0.0.1:18080/auth/setup" >/dev/null
+setup_status="000"
+setup_body=""
+for _ in $(seq 1 80); do
+  response_file="$(mktemp)"
+  if setup_status="$(
+    curl --silent --show-error \
+      --output "$response_file" \
+      --write-out '%{http_code}' \
+      --cookie-jar "$cookie_file" \
+      --header 'Content-Type: application/json' \
+      --data '{"email":"admin@example.com","password":"long-enough-password"}' \
+      "http://127.0.0.1:18080/auth/setup"
+  )"; then
+    :
+  else
+    setup_status="000"
+  fi
+  setup_body="$(<"$response_file")"
+  rm -f "$response_file"
+
+  if [[ "$setup_status" =~ ^2 ]]; then
+    break
+  fi
+  if [[ "$setup_status" != "000" && "$setup_status" != "500" && "$setup_status" != "502" && "$setup_status" != "503" && "$setup_status" != "504" ]]; then
+    echo "Auth setup failed with HTTP $setup_status: $setup_body" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+if [[ ! "$setup_status" =~ ^2 ]]; then
+  echo "Auth setup did not become ready; last HTTP $setup_status: $setup_body" >&2
+  cat /tmp/sheetbase-app-test.log >&2 2>/dev/null || true
+  exit 1
+fi
 
 post_internal_rpc() {
   local data="$1"
