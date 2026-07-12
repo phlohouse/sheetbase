@@ -377,6 +377,46 @@ post_api_key_rows() {
   return 1
 }
 
+patch_authenticated_rows() {
+  local data="$1"
+  local url="$2"
+  local status="000"
+  local body=""
+  local response_file
+
+  for _ in $(seq 1 80); do
+    response_file="$(mktemp)"
+    if status="$(
+      curl --silent --show-error \
+        --output "$response_file" \
+        --write-out '%{http_code}' \
+        --cookie "$cookie_file" \
+        --request PATCH \
+        --header 'Content-Type: application/json' \
+        --header 'Prefer: return=representation' \
+        --data "$data" \
+        "$url"
+    )"; then
+      :
+    else
+      status="000"
+    fi
+    body="$(<"$response_file")"
+    rm -f "$response_file"
+
+    if [[ "$status" =~ ^2 ]]; then
+      return 0
+    fi
+    if [[ "$status" != "000" && "$status" != "400" && "$status" != "404" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+      break
+    fi
+    sleep 0.25
+  done
+
+  echo "Authenticated row update $url failed with HTTP $status: $body" >&2
+  return 1
+}
+
 form_json="$(post_internal_rpc \
   '{"name":"Auth Companies","headers":["Company","Domain"]}' \
   "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
@@ -468,20 +508,14 @@ read_write_status="$(curl --silent --output /dev/null --write-out '%{http_code}'
 if [[ "$read_write_status" =~ ^2 ]]; then echo "Read-only API key wrote a row" >&2; exit 1; fi
 curl --fail-with-body --silent --show-error --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$read_key_id" >/dev/null
 
-added_field="$(curl --fail-with-body --silent --show-error \
-  --cookie "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data "{\"sheet_form_id\":\"$form_id\",\"name\":\"Rows\"}" \
+added_field="$(post_internal_rpc \
+  "{\"sheet_form_id\":\"$form_id\",\"name\":\"Rows\"}" \
   "http://127.0.0.1:18080/internal/rpc/add_sheet_field")"
 rows_column="$(printf '%s' "$added_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["column_name"])')"
 rows_field_id="$(printf '%s' "$added_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
-saved_view="$(curl --fail-with-body --silent --show-error \
-  --cookie "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data "{\"sheet_form_id\":\"$form_id\",\"widths\":{\"company\":260,\"$rows_column\":180}}" \
+saved_view="$(post_internal_rpc \
+  "{\"sheet_form_id\":\"$form_id\",\"widths\":{\"company\":260,\"$rows_column\":180}}" \
   "http://127.0.0.1:18080/internal/rpc/update_sheet_view_widths")"
 company_width="$(printf '%s' "$saved_view" | python3 -c 'import json,sys; print(json.load(sys.stdin)["column_widths"]["company"])')"
 if [[ "$company_width" != "260" ]]; then
@@ -489,11 +523,8 @@ if [[ "$company_width" != "260" ]]; then
   exit 1
 fi
 
-saved_order="$(curl --fail-with-body --silent --show-error \
-  --cookie "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data "{\"sheet_form_id\":\"$form_id\",\"column_order\":[\"$rows_column\",\"company\"]}" \
+saved_order="$(post_internal_rpc \
+  "{\"sheet_form_id\":\"$form_id\",\"column_order\":[\"$rows_column\",\"company\"]}" \
   "http://127.0.0.1:18080/internal/rpc/update_sheet_view_column_order")"
 first_column="$(printf '%s' "$saved_order" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sort_filter_state"]["column_order"][0])')"
 if [[ "$first_column" != "$rows_column" ]]; then
@@ -501,19 +532,12 @@ if [[ "$first_column" != "$rows_column" ]]; then
   exit 1
 fi
 
-curl --fail-with-body --silent --show-error \
-  --cookie "$cookie_file" \
-  --request PATCH \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data "{\"$rows_column\":\"42\"}" \
-  "http://127.0.0.1:18080/internal/$generated_table?domain=eq.acme.test" >/dev/null
+patch_authenticated_rows \
+  "{\"$rows_column\":\"42\"}" \
+  "http://127.0.0.1:18080/internal/$generated_table?domain=eq.acme.test"
 
-typed_field="$(curl --fail-with-body --silent --show-error \
-  --cookie "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data "{\"sheet_form_id\":\"$form_id\",\"field_id\":\"$rows_field_id\",\"target_type\":\"integer\"}" \
+typed_field="$(post_internal_rpc \
+  "{\"sheet_form_id\":\"$form_id\",\"field_id\":\"$rows_field_id\",\"target_type\":\"integer\"}" \
   "http://127.0.0.1:18080/internal/rpc/tighten_sheet_field_type")"
 typed_value="$(printf '%s' "$typed_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["type"])')"
 if [[ "$typed_value" != "integer" ]]; then
@@ -531,11 +555,8 @@ if [[ "$unsafe_status" == "200" ]]; then
   exit 1
 fi
 
-hidden_field="$(curl --fail-with-body --silent --show-error \
-  --cookie "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data "{\"sheet_form_id\":\"$form_id\",\"field_id\":\"$domain_field_id\"}" \
+hidden_field="$(post_internal_rpc \
+  "{\"sheet_form_id\":\"$form_id\",\"field_id\":\"$domain_field_id\"}" \
   "http://127.0.0.1:18080/internal/rpc/hide_sheet_field")"
 hidden_value="$(printf '%s' "$hidden_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["hidden"])')"
 if [[ "$hidden_value" != "True" ]]; then
@@ -549,8 +570,8 @@ if [[ "$visible_metadata" == *"Domain"* ]]; then
   exit 1
 fi
 
-guard_key_json="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" --header 'Content-Type: application/json' \
-  --data "{\"name\":\"Revocation guard\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
+guard_key_json="$(post_internal_rpc \
+  "{\"name\":\"Revocation guard\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
   "http://127.0.0.1:18080/admin/api-keys")"
 guard_key_id="$(printf '%s' "$guard_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 curl --fail-with-body --silent --show-error --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
