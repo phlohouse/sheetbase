@@ -2,10 +2,29 @@
 
 Sheetbase is a single binary that downloads and manages its own PostgreSQL and PostgREST runtime under `~/.sheetbase`.
 
+## One-line install
+
+Install the latest release on supported Linux or macOS systems:
+
+```sh
+curl -fsSL https://github.com/phlohouse/sheetbase/releases/latest/download/install.sh | sh
+```
+
+The installer detects the operating system and CPU architecture, downloads the matching release archive, verifies its SHA-256 checksum, and installs `sheetbase` to `~/.local/bin`. Add that directory to `PATH` if the installer asks you to.
+
+To install a specific version or choose a system-wide directory:
+
+```sh
+curl -fsSL https://github.com/phlohouse/sheetbase/releases/latest/download/install.sh | SHEETBASE_VERSION=v0.1.0 sh
+curl -fsSL https://github.com/phlohouse/sheetbase/releases/latest/download/install.sh | sudo env SHEETBASE_INSTALL_DIR=/usr/local/bin sh
+```
+
+The installer installs the Sheetbase binary only. On first start, Sheetbase downloads and verifies its pinned PostgreSQL and PostgREST runtime under the selected home directory.
+
 ## Prerequisites
 
 - macOS 12 or newer, Debian/Ubuntu Linux, or a RHEL-compatible Linux distribution
-- `tar` with xz support
+- `curl` and `tar` with gzip support
 - Linux package extraction tools: `dpkg-deb` on Debian/Ubuntu, or `rpm2cpio` and `cpio` on RHEL-compatible systems
 
 ## Build
@@ -28,6 +47,8 @@ make release-target GOOS=darwin GOARCH=arm64
 Copy the binary to the server as `/usr/local/bin/sheetbase`.
 
 Tagged GitHub releases run the full verification suite before publishing archives for Linux and macOS on both `amd64` and `arm64`. Create one by pushing a version tag, such as `v0.1.0`.
+
+The release also publishes the one-line installer as `install.sh`.
 
 ## First Run
 

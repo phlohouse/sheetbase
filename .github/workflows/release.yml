@@ -93,19 +93,54 @@ jobs:
           path: release/*.tar.gz*
           if-no-files-found: error
 
-  publish:
-    name: Publish GitHub release
+  installer-smoke:
+    name: Installer smoke (${{ matrix.runner }})
     needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-latest
+          - macos-latest
     steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
       - name: Download release archives
         uses: actions/download-artifact@v5
         with:
           pattern: release-*
           path: release
           merge-multiple: true
+
+      - name: Add installer asset
+        run: cp scripts/install.sh release/install.sh
+
+      - name: Run installer smoke test
+        run: ./scripts/test-installer.sh
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - build
+      - installer-smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Download release archives
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Add installer asset
+        run: cp scripts/install.sh release/install.sh
 
       - name: Publish release
         env:
@@ -114,6 +149,7 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             release/*.tar.gz \
             release/*.tar.gz.sha256 \
+            release/install.sh \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes

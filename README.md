@@ -67,6 +67,14 @@ Runs sign-in, Sheet Form save, and API query browser smoke tests against a runni
 See [docs/INSTALL.md](docs/INSTALL.md) for the full deployment guide. Quick summary:
 
 ```sh
+curl -fsSL https://github.com/phlohouse/sheetbase/releases/latest/download/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+sheetbase run
+```
+
+For a manual or server installation:
+
+```sh
 make release                    # build bin/release/sheetbase-linux-amd64
 # copy to server as /usr/local/bin/sheetbase
 sheetbase runtime install --home /var/lib/sheetbase
@@ -92,7 +100,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The release workflow publishes one `.tar.gz` archive and one `.sha256` checksum for each target.
+The release workflow publishes one `.tar.gz` archive and one `.sha256` checksum for each target, plus a checksum-verifying `install.sh` for one-line Linux and macOS installs.
 
 ## How It Works
 
