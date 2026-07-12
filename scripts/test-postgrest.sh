@@ -80,6 +80,20 @@ if [[ "$ready" != "yes" ]]; then
   exit 1
 fi
 
+schema_ready="no"
+for _ in $(seq 1 80); do
+  if curl --fail --silent "$base_url/" | grep -q '"/rpc/create_sheet_form"'; then
+    schema_ready="yes"
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$schema_ready" != "yes" ]]; then
+  docker logs "$postgrest" >&2 || true
+  echo "PostgREST schema did not expose create_sheet_form at $base_url" >&2
+  exit 1
+fi
+
 jwt_for_user() {
   python3 - "$jwt_secret" "$1" <<'PY'
 import base64, hashlib, hmac, json, sys, time
@@ -118,12 +132,19 @@ if [[ ! "$generated_table" =~ ^[a-z][a-z0-9-]*$ ]]; then
   exit 1
 fi
 
+generated_table_ready="no"
 for _ in $(seq 1 80); do
   if curl --fail --silent --header "$auth_header" "$base_url/$generated_table?limit=1" >/dev/null 2>&1; then
+    generated_table_ready="yes"
     break
   fi
   sleep 0.25
 done
+if [[ "$generated_table_ready" != "yes" ]]; then
+  docker logs "$postgrest" >&2 || true
+  echo "PostgREST did not expose $generated_table at $base_url" >&2
+  exit 1
+fi
 
 curl --fail --silent \
   --header "$auth_header" \
