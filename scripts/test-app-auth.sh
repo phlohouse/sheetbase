@@ -64,12 +64,34 @@ docker run \
 postgrest_port="$(docker port "$postgrest" 3000/tcp | head -n 1 | sed 's/.*://')"
 db_port="$(docker port "$postgres" 5432/tcp | head -n 1 | sed 's/.*://')"
 
+postgrest_ready="no"
 for _ in $(seq 1 80); do
   if curl --fail --silent "http://127.0.0.1:${postgrest_port}/" >/dev/null 2>&1; then
+    postgrest_ready="yes"
     break
   fi
   sleep 0.25
 done
+if [[ "$postgrest_ready" != "yes" ]]; then
+  docker logs "$postgrest" >&2 || true
+  echo "PostgREST did not become ready" >&2
+  exit 1
+fi
+
+schema_ready="no"
+for _ in $(seq 1 80); do
+  openapi="$(curl --fail --silent "http://127.0.0.1:${postgrest_port}/" 2>/dev/null || true)"
+  if [[ "$openapi" == *'"/rpc/create_sheet_form"'* ]]; then
+    schema_ready="yes"
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$schema_ready" != "yes" ]]; then
+  docker logs "$postgrest" >&2 || true
+  echo "PostgREST schema did not expose create_sheet_form" >&2
+  exit 1
+fi
 
 go run . serve \
   --home "$home" \
@@ -99,17 +121,56 @@ curl --fail --silent \
   --data '{"email":"admin@example.com","password":"long-enough-password"}' \
   "http://127.0.0.1:18080/auth/setup" >/dev/null
 
-form_json="$(curl --fail --silent \
-  --cookie "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data '{"name":"Auth Companies","headers":["Company","Domain"]}' \
+post_internal_rpc() {
+  local data="$1"
+  local url="$2"
+  local status="000"
+  local body=""
+  local response_file
+
+  for _ in $(seq 1 80); do
+    response_file="$(mktemp)"
+    if status="$(
+      curl --silent --show-error \
+        --output "$response_file" \
+        --write-out '%{http_code}' \
+        --cookie "$cookie_file" \
+        --header 'Content-Type: application/json' \
+        --header 'Prefer: return=representation' \
+        --data "$data" \
+        "$url"
+    )"; then
+      :
+    else
+      status="000"
+    fi
+    body="$(<"$response_file")"
+    rm -f "$response_file"
+
+    if [[ "$status" =~ ^2 ]]; then
+      printf '%s' "$body"
+      return 0
+    fi
+    if [[ "$status" != "000" && "$status" != "404" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+      break
+    fi
+    sleep 0.25
+  done
+
+  echo "PostgREST request $url failed with HTTP $status: $body" >&2
+  return 1
+}
+
+form_json="$(post_internal_rpc \
+  '{"name":"Auth Companies","headers":["Company","Domain"]}' \
   "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
 
 generated_table="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
 slug="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
 form_id="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-second_form_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' --header 'Prefer: return=representation' --data '{"name":"Auth Contacts","headers":["Name"]}' "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
+second_form_json="$(post_internal_rpc \
+  '{"name":"Auth Contacts","headers":["Name"]}' \
+  "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
 second_form_id="$(printf '%s' "$second_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 second_slug="$(printf '%s' "$second_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
 
@@ -132,7 +193,9 @@ if [[ "$permission_count" != "2" ]]; then echo "Expected API key to cover two da
 curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?limit=1" >/dev/null
 curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$second_slug?limit=1" >/dev/null
 
-future_form_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' --header 'Prefer: return=representation' --data '{"name":"Future dataset","headers":["Value"]}' "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
+future_form_json="$(post_internal_rpc \
+  '{"name":"Future dataset","headers":["Value"]}' \
+  "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
 future_form_id="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 future_slug="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
 curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1" >/dev/null
