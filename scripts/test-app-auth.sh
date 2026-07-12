@@ -262,18 +262,18 @@ future_form_json="$(post_internal_rpc \
 future_form_id="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 future_slug="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
 wait_for_api_key_route "$api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1"
-curl --fail --silent --request PATCH --cookie "$cookie_file" --header 'Content-Type: application/json' \
+curl --fail-with-body --silent --show-error --request PATCH --cookie "$cookie_file" --header 'Content-Type: application/json' \
   --data "{\"sheet_form_ids\":[\"$form_id\",\"$second_form_id\",\"$future_form_id\"],\"can_write\":true}" \
   "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
 wait_for_api_key_route "$api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1"
 
-forms="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_forms?select=name")"
+forms="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_forms?select=name")"
 if [[ "$forms" != *"Auth Companies"* ]]; then
   echo "Authenticated API did not return created form: $forms" >&2
   exit 1
 fi
 
-metadata="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_fields?sheet_form_id=eq.$form_id&select=id,name,column_name&order=position.asc")"
+metadata="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_fields?sheet_form_id=eq.$form_id&select=id,name,column_name&order=position.asc")"
 if [[ "$metadata" != *"Company"* || "$metadata" != *"Domain"* ]]; then
   echo "Authenticated API did not return form fields: $metadata" >&2
   exit 1
@@ -281,30 +281,30 @@ fi
 company_field_id="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(next(field["id"] for field in json.load(sys.stdin) if field["name"] == "Company"))')"
 domain_field_id="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(next(field["id"] for field in json.load(sys.stdin) if field["name"] == "Domain"))')"
 
-curl --fail --silent \
+curl --fail-with-body --silent --show-error \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
   --header 'Prefer: return=representation' \
   --data '[{"company":"Acme Labs","domain":"acme.test"},{"company":"Vercel","domain":"vercel.com"}]' \
   "http://127.0.0.1:18080/internal/$generated_table" >/dev/null
 
-filtered="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/internal/$generated_table?domain=eq.acme.test&select=company,domain")"
+filtered="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" "http://127.0.0.1:18080/internal/$generated_table?domain=eq.acme.test&select=company,domain")"
 filtered_company="$(printf '%s' "$filtered" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["company"])')"
 if [[ "$filtered_company" != "Acme Labs" ]]; then
   echo "Authenticated API did not return inserted row: $filtered" >&2
   exit 1
 fi
 
-public_filtered="$(curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?domain=eq.acme.test&select=company")"
+public_filtered="$(curl --fail-with-body --silent --show-error --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?domain=eq.acme.test&select=company")"
 if [[ "$public_filtered" != *"Acme Labs"* ]]; then echo "API key could not read rows: $public_filtered" >&2; exit 1; fi
 
-curl --fail --silent \
+curl --fail-with-body --silent --show-error \
   --header "X-API-Key: $api_key" \
   --header 'Content-Type: application/json' \
   --data '[{"company":"API Writer","domain":"api.test"}]' \
   "http://127.0.0.1:18080/api/$slug" >/dev/null
 
-read_key_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' \
+read_key_json="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" --header 'Content-Type: application/json' \
   --data "{\"name\":\"Read only\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
   "http://127.0.0.1:18080/admin/api-keys")"
 read_key="$(printf '%s' "$read_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
@@ -312,9 +312,9 @@ read_key_id="$(printf '%s' "$read_key_json" | python3 -c 'import json,sys; print
 read_write_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --header "X-API-Key: $read_key" \
   --header 'Content-Type: application/json' --data '[{"company":"Denied"}]' "http://127.0.0.1:18080/api/$slug")"
 if [[ "$read_write_status" =~ ^2 ]]; then echo "Read-only API key wrote a row" >&2; exit 1; fi
-curl --fail --silent --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$read_key_id" >/dev/null
+curl --fail-with-body --silent --show-error --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$read_key_id" >/dev/null
 
-added_field="$(curl --fail --silent \
+added_field="$(curl --fail-with-body --silent --show-error \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
   --header 'Prefer: return=representation' \
@@ -323,7 +323,7 @@ added_field="$(curl --fail --silent \
 rows_column="$(printf '%s' "$added_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["column_name"])')"
 rows_field_id="$(printf '%s' "$added_field" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
-saved_view="$(curl --fail --silent \
+saved_view="$(curl --fail-with-body --silent --show-error \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
   --header 'Prefer: return=representation' \
@@ -335,7 +335,7 @@ if [[ "$company_width" != "260" ]]; then
   exit 1
 fi
 
-saved_order="$(curl --fail --silent \
+saved_order="$(curl --fail-with-body --silent --show-error \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
   --header 'Prefer: return=representation' \
@@ -347,7 +347,7 @@ if [[ "$first_column" != "$rows_column" ]]; then
   exit 1
 fi
 
-curl --fail --silent \
+curl --fail-with-body --silent --show-error \
   --cookie "$cookie_file" \
   --request PATCH \
   --header 'Content-Type: application/json' \
@@ -355,7 +355,7 @@ curl --fail --silent \
   --data "{\"$rows_column\":\"42\"}" \
   "http://127.0.0.1:18080/internal/$generated_table?domain=eq.acme.test" >/dev/null
 
-typed_field="$(curl --fail --silent \
+typed_field="$(curl --fail-with-body --silent --show-error \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
   --header 'Prefer: return=representation' \
@@ -377,7 +377,7 @@ if [[ "$unsafe_status" == "200" ]]; then
   exit 1
 fi
 
-hidden_field="$(curl --fail --silent \
+hidden_field="$(curl --fail-with-body --silent --show-error \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
   --header 'Prefer: return=representation' \
@@ -389,19 +389,19 @@ if [[ "$hidden_value" != "True" ]]; then
   exit 1
 fi
 
-visible_metadata="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_fields?sheet_form_id=eq.$form_id&hidden=eq.false&select=name")"
+visible_metadata="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_fields?sheet_form_id=eq.$form_id&hidden=eq.false&select=name")"
 if [[ "$visible_metadata" == *"Domain"* ]]; then
   echo "Hidden field still appears in default visible metadata: $visible_metadata" >&2
   exit 1
 fi
 
-guard_key_json="$(curl --fail --silent --cookie "$cookie_file" --header 'Content-Type: application/json' \
+guard_key_json="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" --header 'Content-Type: application/json' \
   --data "{\"name\":\"Revocation guard\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
   "http://127.0.0.1:18080/admin/api-keys")"
 guard_key_id="$(printf '%s' "$guard_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-curl --fail --silent --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
+curl --fail-with-body --silent --show-error --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
 revoked_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?limit=1")"
 if [[ "$revoked_status" != "401" ]]; then echo "Revoked API key returned $revoked_status" >&2; exit 1; fi
-curl --fail --silent --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$guard_key_id" >/dev/null
+curl --fail-with-body --silent --show-error --request DELETE --cookie "$cookie_file" "http://127.0.0.1:18080/admin/api-keys/$guard_key_id" >/dev/null
 
 echo "Sheetbase app auth/proxy test passed"
