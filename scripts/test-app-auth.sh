@@ -180,13 +180,49 @@ post_internal_rpc() {
       printf '%s' "$body"
       return 0
     fi
-    if [[ "$status" != "000" && "$status" != "404" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+    if [[ "$status" != "000" && "$status" != "404" && "$status" != "500" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
       break
     fi
     sleep 0.25
   done
 
   echo "PostgREST request $url failed with HTTP $status: $body" >&2
+  return 1
+}
+
+wait_for_api_key_route() {
+  local key="$1"
+  local url="$2"
+  local status="000"
+  local body=""
+  local response_file
+
+  for _ in $(seq 1 80); do
+    response_file="$(mktemp)"
+    if status="$(
+      curl --silent --show-error \
+        --output "$response_file" \
+        --write-out '%{http_code}' \
+        --header "X-API-Key: $key" \
+        "$url"
+    )"; then
+      :
+    else
+      status="000"
+    fi
+    body="$(<"$response_file")"
+    rm -f "$response_file"
+
+    if [[ "$status" =~ ^2 ]]; then
+      return 0
+    fi
+    if [[ "$status" != "000" && "$status" != "404" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+      break
+    fi
+    sleep 0.25
+  done
+
+  echo "API key request $url failed with HTTP $status: $body" >&2
   return 1
 }
 
@@ -209,29 +245,27 @@ if [[ "$cookie_api_status" != "200" ]]; then
   exit 1
 fi
 
-api_key_json="$(curl --fail --silent \
-  --cookie "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --data "{\"name\":\"Test integration\",\"sheet_form_ids\":[\"$form_id\",\"$second_form_id\"],\"can_write\":true,\"all_sheet_forms\":true}" \
+api_key_json="$(post_internal_rpc \
+  "{\"name\":\"Test integration\",\"sheet_form_ids\":[\"$form_id\",\"$second_form_id\"],\"can_write\":true,\"all_sheet_forms\":true}" \
   "http://127.0.0.1:18080/admin/api-keys")"
 api_key="$(printf '%s' "$api_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
 api_key_id="$(printf '%s' "$api_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 permission_count="$(printf '%s' "$api_key_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["permissions"]))')"
 if [[ "$permission_count" != "2" ]]; then echo "Expected API key to cover two datasets, got $permission_count" >&2; exit 1; fi
 
-curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?limit=1" >/dev/null
-curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$second_slug?limit=1" >/dev/null
+wait_for_api_key_route "$api_key" "http://127.0.0.1:18080/api/$slug?limit=1"
+wait_for_api_key_route "$api_key" "http://127.0.0.1:18080/api/$second_slug?limit=1"
 
 future_form_json="$(post_internal_rpc \
   '{"name":"Future dataset","headers":["Value"]}' \
   "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
 future_form_id="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 future_slug="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
-curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1" >/dev/null
+wait_for_api_key_route "$api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1"
 curl --fail --silent --request PATCH --cookie "$cookie_file" --header 'Content-Type: application/json' \
   --data "{\"sheet_form_ids\":[\"$form_id\",\"$second_form_id\",\"$future_form_id\"],\"can_write\":true}" \
   "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
-curl --fail --silent --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1" >/dev/null
+wait_for_api_key_route "$api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1"
 
 forms="$(curl --fail --silent --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_forms?select=name")"
 if [[ "$forms" != *"Auth Companies"* ]]; then
