@@ -338,6 +338,45 @@ get_api_key_rows() {
   return 1
 }
 
+post_api_key_rows() {
+  local key="$1"
+  local data="$2"
+  local url="$3"
+  local status="000"
+  local body=""
+  local response_file
+
+  for _ in $(seq 1 80); do
+    response_file="$(mktemp)"
+    if status="$(
+      curl --silent --show-error \
+        --output "$response_file" \
+        --write-out '%{http_code}' \
+        --header "X-API-Key: $key" \
+        --header 'Content-Type: application/json' \
+        --data "$data" \
+        "$url"
+    )"; then
+      :
+    else
+      status="000"
+    fi
+    body="$(<"$response_file")"
+    rm -f "$response_file"
+
+    if [[ "$status" =~ ^2 ]]; then
+      return 0
+    fi
+    if [[ "$status" != "000" && "$status" != "400" && "$status" != "404" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+      break
+    fi
+    sleep 0.25
+  done
+
+  echo "API key row insert $url failed with HTTP $status: $body" >&2
+  return 1
+}
+
 form_json="$(post_internal_rpc \
   '{"name":"Auth Companies","headers":["Company","Domain"]}' \
   "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
@@ -412,11 +451,11 @@ echo "app-auth: checking API key rows"
 public_filtered="$(get_api_key_rows "$api_key" "http://127.0.0.1:18080/api/$slug?domain=eq.acme.test&select=company")"
 if [[ "$public_filtered" != *"Acme Labs"* ]]; then echo "API key could not read rows: $public_filtered" >&2; exit 1; fi
 
-curl --fail-with-body --silent --show-error \
-  --header "X-API-Key: $api_key" \
-  --header 'Content-Type: application/json' \
-  --data '[{"company":"API Writer","domain":"api.test"}]' \
-  "http://127.0.0.1:18080/api/$slug" >/dev/null
+echo "app-auth: inserting API key row"
+post_api_key_rows \
+  "$api_key" \
+  '[{"company":"API Writer","domain":"api.test"}]' \
+  "http://127.0.0.1:18080/api/$slug"
 
 read_key_json="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" --header 'Content-Type: application/json' \
   --data "{\"name\":\"Read only\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
