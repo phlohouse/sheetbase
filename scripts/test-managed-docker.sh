@@ -20,6 +20,8 @@ postgrest_port="$(free_port)"
 
 cleanup() {
   go run . stop --home "$home" --postgres-port "$postgres_port" --postgrest-port "$postgrest_port" >/dev/null 2>&1 || true
+  docker run --rm --user 0:0 --volume "$home:/sheetbase-home" postgres:16-alpine \
+    sh -c 'rm -rf /sheetbase-home/data/postgres' >/dev/null 2>&1 || true
   rm -rf "$home"
 }
 trap cleanup EXIT
