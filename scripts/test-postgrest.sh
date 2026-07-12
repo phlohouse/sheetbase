@@ -174,12 +174,40 @@ if [[ "$generated_table_ready" != "yes" ]]; then
   exit 1
 fi
 
-curl --fail --silent \
-  --header "$auth_header" \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data '[{"company":"Vercel","domain":"vercel.com","score":"Excellent"},{"company":"GitHub","domain":"github.com","score":"Good"},{"company":"Slack","domain":"slack.com","score":"Low"}]' \
-  "$base_url/$generated_table" >/dev/null
+insert_status="000"
+insert_body=""
+for _ in $(seq 1 80); do
+  response_file="$(mktemp)"
+  if insert_status="$(
+    curl --silent --show-error \
+      --output "$response_file" \
+      --write-out '%{http_code}' \
+      --header "$auth_header" \
+      --header 'Content-Type: application/json' \
+      --header 'Prefer: return=representation' \
+      --data '[{"company":"Vercel","domain":"vercel.com","score":"Excellent"},{"company":"GitHub","domain":"github.com","score":"Good"},{"company":"Slack","domain":"slack.com","score":"Low"}]' \
+      "$base_url/$generated_table"
+  )"; then
+    :
+  else
+    insert_status="000"
+  fi
+  insert_body="$(<"$response_file")"
+  rm -f "$response_file"
+
+  if [[ "$insert_status" =~ ^2 ]]; then
+    break
+  fi
+  if [[ "$insert_status" != "000" && "$insert_status" != "404" && "$insert_status" != "502" && "$insert_status" != "503" && "$insert_status" != "504" ]]; then
+    break
+  fi
+  sleep 0.25
+done
+if [[ ! "$insert_status" =~ ^2 ]]; then
+  docker logs "$postgrest" >&2 || true
+  echo "PostgREST insert into $generated_table failed with HTTP $insert_status: $insert_body" >&2
+  exit 1
+fi
 
 filtered="$(
   curl --fail --silent \
