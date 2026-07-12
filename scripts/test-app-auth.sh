@@ -226,6 +226,45 @@ wait_for_api_key_route() {
   return 1
 }
 
+post_authenticated_rows() {
+  local data="$1"
+  local url="$2"
+  local status="000"
+  local body=""
+  local response_file
+
+  for _ in $(seq 1 80); do
+    response_file="$(mktemp)"
+    if status="$(
+      curl --silent --show-error \
+        --output "$response_file" \
+        --write-out '%{http_code}' \
+        --cookie "$cookie_file" \
+        --header 'Content-Type: application/json' \
+        --header 'Prefer: return=representation' \
+        --data "$data" \
+        "$url"
+    )"; then
+      :
+    else
+      status="000"
+    fi
+    body="$(<"$response_file")"
+    rm -f "$response_file"
+
+    if [[ "$status" =~ ^2 ]]; then
+      return 0
+    fi
+    if [[ "$status" != "000" && "$status" != "400" && "$status" != "404" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+      break
+    fi
+    sleep 0.25
+  done
+
+  echo "Authenticated row insert $url failed with HTTP $status: $body" >&2
+  return 1
+}
+
 form_json="$(post_internal_rpc \
   '{"name":"Auth Companies","headers":["Company","Domain"]}' \
   "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
@@ -284,12 +323,9 @@ company_field_id="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print
 domain_field_id="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(next(field["id"] for field in json.load(sys.stdin) if field["name"] == "Domain"))')"
 
 echo "app-auth: inserting authenticated rows"
-curl --fail-with-body --silent --show-error \
-  --cookie "$cookie_file" \
-  --header 'Content-Type: application/json' \
-  --header 'Prefer: return=representation' \
-  --data '[{"company":"Acme Labs","domain":"acme.test"},{"company":"Vercel","domain":"vercel.com"}]' \
-  "http://127.0.0.1:18080/internal/$generated_table" >/dev/null
+post_authenticated_rows \
+  '[{"company":"Acme Labs","domain":"acme.test"},{"company":"Vercel","domain":"vercel.com"}]' \
+  "http://127.0.0.1:18080/internal/$generated_table"
 
 filtered="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" "http://127.0.0.1:18080/internal/$generated_table?domain=eq.acme.test&select=company,domain")"
 filtered_company="$(printf '%s' "$filtered" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["company"])')"
