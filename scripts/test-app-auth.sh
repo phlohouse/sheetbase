@@ -301,6 +301,43 @@ get_authenticated_rows() {
   return 1
 }
 
+get_api_key_rows() {
+  local key="$1"
+  local url="$2"
+  local status="000"
+  local body=""
+  local response_file
+
+  for _ in $(seq 1 80); do
+    response_file="$(mktemp)"
+    if status="$(
+      curl --silent --show-error \
+        --output "$response_file" \
+        --write-out '%{http_code}' \
+        --header "X-API-Key: $key" \
+        "$url"
+    )"; then
+      :
+    else
+      status="000"
+    fi
+    body="$(<"$response_file")"
+    rm -f "$response_file"
+
+    if [[ "$status" =~ ^2 ]]; then
+      printf '%s' "$body"
+      return 0
+    fi
+    if [[ "$status" != "000" && "$status" != "400" && "$status" != "404" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+      break
+    fi
+    sleep 0.25
+  done
+
+  echo "API key row read $url failed with HTTP $status: $body" >&2
+  return 1
+}
+
 form_json="$(post_internal_rpc \
   '{"name":"Auth Companies","headers":["Company","Domain"]}' \
   "http://127.0.0.1:18080/internal/rpc/create_sheet_form")"
@@ -363,6 +400,7 @@ post_authenticated_rows \
   '[{"company":"Acme Labs","domain":"acme.test"},{"company":"Vercel","domain":"vercel.com"}]' \
   "http://127.0.0.1:18080/internal/$generated_table"
 
+echo "app-auth: checking authenticated rows"
 filtered="$(get_authenticated_rows "http://127.0.0.1:18080/internal/$generated_table?domain=eq.acme.test&select=company,domain")"
 filtered_company="$(printf '%s' "$filtered" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["company"])')"
 if [[ "$filtered_company" != "Acme Labs" ]]; then
@@ -370,7 +408,8 @@ if [[ "$filtered_company" != "Acme Labs" ]]; then
   exit 1
 fi
 
-public_filtered="$(curl --fail-with-body --silent --show-error --header "X-API-Key: $api_key" "http://127.0.0.1:18080/api/$slug?domain=eq.acme.test&select=company")"
+echo "app-auth: checking API key rows"
+public_filtered="$(get_api_key_rows "$api_key" "http://127.0.0.1:18080/api/$slug?domain=eq.acme.test&select=company")"
 if [[ "$public_filtered" != *"Acme Labs"* ]]; then echo "API key could not read rows: $public_filtered" >&2; exit 1; fi
 
 curl --fail-with-body --silent --show-error \
