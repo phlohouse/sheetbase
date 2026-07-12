@@ -180,7 +180,7 @@ post_internal_rpc() {
       printf '%s' "$body"
       return 0
     fi
-    if [[ "$status" != "000" && "$status" != "404" && "$status" != "500" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+    if [[ "$status" != "000" && "$status" != "400" && "$status" != "404" && "$status" != "500" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
       break
     fi
     sleep 0.25
@@ -457,8 +457,9 @@ post_api_key_rows \
   '[{"company":"API Writer","domain":"api.test"}]' \
   "http://127.0.0.1:18080/api/$slug"
 
-read_key_json="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" --header 'Content-Type: application/json' \
-  --data "{\"name\":\"Read only\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
+echo "app-auth: creating read-only key"
+read_key_json="$(post_internal_rpc \
+  "{\"name\":\"Read only\",\"sheet_form_ids\":[\"$form_id\"],\"can_write\":false}" \
   "http://127.0.0.1:18080/admin/api-keys")"
 read_key="$(printf '%s' "$read_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
 read_key_id="$(printf '%s' "$read_key_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
