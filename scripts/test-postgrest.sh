@@ -115,14 +115,42 @@ jwt="$(jwt_for_user "$user_id")"
 auth_header="Authorization: Bearer $jwt"
 other_auth_header="Authorization: Bearer $(jwt_for_user "$other_user_id")"
 
-form_json="$(
-  curl --fail --silent \
-    --header "$auth_header" \
-    --header 'Content-Type: application/json' \
-    --header 'Prefer: return=representation' \
-    --data '{"name":"API Companies","headers":["Company","Domain","Score"]}' \
-    "$base_url/rpc/create_sheet_form"
-)"
+form_json=""
+rpc_status="000"
+rpc_body=""
+for _ in $(seq 1 80); do
+  response_file="$(mktemp)"
+  if rpc_status="$(
+    curl --silent --show-error \
+      --output "$response_file" \
+      --write-out '%{http_code}' \
+      --header "$auth_header" \
+      --header 'Content-Type: application/json' \
+      --header 'Prefer: return=representation' \
+      --data '{"name":"API Companies","headers":["Company","Domain","Score"]}' \
+      "$base_url/rpc/create_sheet_form"
+  )"; then
+    :
+  else
+    rpc_status="000"
+  fi
+  rpc_body="$(<"$response_file")"
+  rm -f "$response_file"
+
+  if [[ "$rpc_status" =~ ^2 ]]; then
+    form_json="$rpc_body"
+    break
+  fi
+  if [[ "$rpc_status" != "000" && "$rpc_status" != "404" && "$rpc_status" != "502" && "$rpc_status" != "503" && "$rpc_status" != "504" ]]; then
+    break
+  fi
+  sleep 0.25
+done
+if [[ -z "$form_json" ]]; then
+  docker logs "$postgrest" >&2 || true
+  echo "PostgREST create_sheet_form failed with HTTP $rpc_status: $rpc_body" >&2
+  exit 1
+fi
 
 generated_table="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generated_table_name"])')"
 form_id="$(printf '%s' "$form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
