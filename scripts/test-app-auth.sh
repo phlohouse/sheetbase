@@ -262,11 +262,13 @@ future_form_json="$(post_internal_rpc \
 future_form_id="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 future_slug="$(printf '%s' "$future_form_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])')"
 wait_for_api_key_route "$api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1"
+echo "app-auth: updating API key permissions"
 curl --fail-with-body --silent --show-error --request PATCH --cookie "$cookie_file" --header 'Content-Type: application/json' \
   --data "{\"sheet_form_ids\":[\"$form_id\",\"$second_form_id\",\"$future_form_id\"],\"can_write\":true}" \
   "http://127.0.0.1:18080/admin/api-keys/$api_key_id" >/dev/null
 wait_for_api_key_route "$api_key" "http://127.0.0.1:18080/api/$future_slug?limit=1"
 
+echo "app-auth: loading form metadata"
 forms="$(curl --fail-with-body --silent --show-error --cookie "$cookie_file" "http://127.0.0.1:18080/internal/sheet_forms?select=name")"
 if [[ "$forms" != *"Auth Companies"* ]]; then
   echo "Authenticated API did not return created form: $forms" >&2
@@ -281,6 +283,7 @@ fi
 company_field_id="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(next(field["id"] for field in json.load(sys.stdin) if field["name"] == "Company"))')"
 domain_field_id="$(printf '%s' "$metadata" | python3 -c 'import json,sys; print(next(field["id"] for field in json.load(sys.stdin) if field["name"] == "Domain"))')"
 
+echo "app-auth: inserting authenticated rows"
 curl --fail-with-body --silent --show-error \
   --cookie "$cookie_file" \
   --header 'Content-Type: application/json' \
