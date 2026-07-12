@@ -14,12 +14,20 @@ Sheetbase is a single binary that downloads and manages its own PostgreSQL and P
 make release
 ```
 
-This writes:
+This writes the Linux amd64 binary and checksum:
 
 - `bin/release/sheetbase-linux-amd64`
 - `bin/release/sheetbase-linux-amd64.sha256`
 
+For another supported target, use `make release-target`, for example:
+
+```sh
+make release-target GOOS=darwin GOARCH=arm64
+```
+
 Copy the binary to the server as `/usr/local/bin/sheetbase`.
+
+Tagged GitHub releases run the full verification suite before publishing archives for Linux and macOS on both `amd64` and `arm64`. Create one by pushing a version tag, such as `v0.1.0`.
 
 ## First Run
 

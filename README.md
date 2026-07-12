@@ -51,6 +51,7 @@ Open the app, create the first admin user, then create a Sheet Form.
 | `make build` | Build `bin/sheetbase` |
 | `make linux` | Cross-compile `bin/sheetbase-linux-amd64` |
 | `make release` | Build release binary and SHA-256 checksum |
+| `make release-target GOOS=darwin GOARCH=arm64` | Build a selected Linux or macOS release binary and checksum |
 | `make release-smoke` | Build release binary and smoke-test its embedded UI |
 
 ### UI Smoke Tests
@@ -81,6 +82,17 @@ sheetbase systemd --home /var/lib/sheetbase --bin /usr/local/bin/sheetbase > she
 sudo cp sheetbase.service /etc/systemd/system/
 sudo systemctl enable --now sheetbase
 ```
+
+## CI and Releases
+
+GitHub Actions runs unit tests on Linux and macOS, then runs the Docker-backed integration suite on Linux. A tagged release repeats that full verification before publishing archives for Linux and macOS on both `amd64` and `arm64`:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow publishes one `.tar.gz` archive and one `.sha256` checksum for each target.
 
 ## How It Works
 

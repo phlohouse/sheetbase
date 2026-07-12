@@ -1,4 +1,4 @@
-.PHONY: api-test app-test build db-test dev-services down linux managed-test release release-smoke serve test ui-build up verify
+.PHONY: api-test app-test build db-test dev-services down linux managed-test release release-smoke release-target serve test ui-build up verify
 
 SHEETBASE_DEV_HOME ?= .sheetbase
 SHEETBASE_DEV_POSTGRES_PORT ?= 55532
@@ -30,6 +30,9 @@ managed-test:
 
 release:
 	./scripts/release-linux.sh
+
+release-target:
+	./scripts/build-release.sh "$(GOOS)" "$(GOARCH)"
 
 release-smoke:
 	./scripts/test-release-smoke.sh
