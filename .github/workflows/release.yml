@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '[0-9]*'
 
 permissions:
   contents: read
@@ -153,3 +154,24 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes
+
+  published-installer-smoke:
+    name: Published installer smoke (${{ matrix.runner }})
+    needs: publish
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - name: Install from the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          install_dir="$RUNNER_TEMP/sheetbase-bin"
+          installer_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/install.sh"
+          curl --fail --silent --show-error --location --retry 3 "$installer_url" \
+            | SHEETBASE_VERSION="$GITHUB_REF_NAME" SHEETBASE_INSTALL_DIR="$install_dir" sh
+          "$install_dir/sheetbase" help >/dev/null

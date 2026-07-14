@@ -6,6 +6,8 @@ release_dir="${SHEETBASE_RELEASE_DIR:-$root/release}"
 test_home="$(mktemp -d)"
 server_log="$test_home/server.log"
 install_dir="$test_home/bin"
+runtime_home="$test_home/home/.sheetbase"
+runtime_started=false
 
 free_port() {
   python3 - <<'PY'
@@ -29,6 +31,13 @@ case "$native_os/$native_arch" in
 esac
 
 cleanup() {
+  if [[ "$runtime_started" == true && -n "${native_binary:-}" ]]; then
+    "$native_binary" down \
+      --home "$runtime_home" \
+      -addr "127.0.0.1:${app_port:-18082}" \
+      --postgres-port "${postgres_port:-55432}" \
+      --postgrest-port "${postgrest_port:-3000}" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${server_pid:-}" ]]; then
     kill "$server_pid" >/dev/null 2>&1 || true
     wait "$server_pid" >/dev/null 2>&1 || true
@@ -83,8 +92,34 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
 
   test -x "$target_install/sheetbase"
   if [[ "$target" == "$native_target" ]]; then
-    "$target_install/sheetbase" help >/dev/null
+    native_binary="$target_install/sheetbase"
+    "$native_binary" help >/dev/null
   fi
 done
 
-echo "installer smoke passed for all release targets"
+test -n "${native_binary:-}"
+app_port="$(free_port)"
+postgres_port="$(free_port)"
+postgrest_port="$(free_port)"
+
+runtime_started=true
+"$native_binary" up \
+  --home "$runtime_home" \
+  -addr "127.0.0.1:$app_port" \
+  --postgres-port "$postgres_port" \
+  --postgrest-port "$postgrest_port"
+
+curl --fail --silent "http://127.0.0.1:$app_port/healthz" | grep -q '^ok$'
+test -f "$runtime_home/config/sheetbase.env"
+test -f "$runtime_home/data/postgres/PG_VERSION"
+test -f "$runtime_home/data/postgres/postgresql.conf"
+grep -Fq "$runtime_home/data/postgres" "$runtime_home/data/postgres/postmaster.opts"
+
+"$native_binary" down \
+  --home "$runtime_home" \
+  -addr "127.0.0.1:$app_port" \
+  --postgres-port "$postgres_port" \
+  --postgrest-port "$postgrest_port"
+runtime_started=false
+
+echo "installer smoke passed for all release targets and a clean native first run"
